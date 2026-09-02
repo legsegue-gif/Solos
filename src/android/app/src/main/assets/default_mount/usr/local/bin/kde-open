@@ -1,0 +1,4 @@
+#!/bin/sh
+# SolosApp URL interceptor — routes kde-open into the host-side
+# OpenOffloadHandler via solos-open. See solos-open for details.
+exec /usr/local/bin/solos-open "$@"

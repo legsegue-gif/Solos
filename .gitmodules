@@ -1,0 +1,8 @@
+[submodule "deps/ish"]
+	path = deps/ish
+	url = https://github.com/legsegue-gif/solos-ish.git
+	branch = main
+[submodule "deps/proot"]
+	path = deps/proot
+	url = https://github.com/legsegue-gif/solos-proot.git
+	branch = main

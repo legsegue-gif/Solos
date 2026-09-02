@@ -1,0 +1,4 @@
+#!/bin/sh
+# SolosApp URL interceptor — routes xdg-open(1) into the host-side
+# OpenOffloadHandler via solos-open. See solos-open for details.
+exec /usr/local/bin/solos-open "$@"

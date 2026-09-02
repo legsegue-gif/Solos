@@ -1,0 +1,22 @@
+// ProviderCustomization.xcconfig.example
+//
+// Template for build-time customization values. Copy this file to
+// ProviderCustomization.xcconfig (same directory) and fill in the values below,
+// then set the Solos target's base configuration to ProviderCustomization.xcconfig
+// (Project > Info > Configurations) if it is not already.
+//
+// Leaving a value empty is allowed for building; the app fails at runtime the
+// first time that value is actually needed.
+
+// Only needed to sign in with Claude OAuth credentials (API keys do not need
+// it). Requests authenticated with OAuth must open their system prompt with
+// the identifying line Claude Code itself sends, or the endpoint rejects
+// them. We ship no value — supply your own. Other open-source projects
+// talking to the same endpoint declare the same identifier, e.g.
+// https://github.com/Wei-Shaw/claude-relay-service
+ANTHROPIC_OAUTH_IDENTIFIER_PROMPT =
+
+// 别把本机绝对路径编进二进制（cppjieba 等头文件库的 assert/__FILE__）。
+// strip 清不掉它们——那是 __TEXT 里的字符串，不是调试信息。
+OTHER_CFLAGS = $(inherited) -ffile-prefix-map=$(SRCROOT)=.
+OTHER_CPLUSPLUSFLAGS = $(inherited) -ffile-prefix-map=$(SRCROOT)=.
