@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- What the system shows when a device tool first asks for access. Merged
+     into the generated Info.plist of every target that registers the device
+     tools. -->
+<dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Solos reads and adds calendar events when you ask it to.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Solos reads and adds reminders when you ask it to.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Solos looks up contacts by name when you ask it to.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Solos uses your location when you ask about weather, places or routes near you.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Solos lists your photos and copies the ones you choose into its workspace so a script can work on them.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Solos searches and plays music in your library when you ask it to.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Solos reads health data such as steps, heart rate, sleep and weight when you ask it to.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Solos records health data such as weight or water when you ask it to.</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Solos sets alarms and timers when you ask it to.</string>
+</dict>
+</plist>

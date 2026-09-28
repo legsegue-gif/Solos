@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses the reference app's name in what is staged (tools/namecheck).
+exec python3 "$(dirname "$0")/../namecheck" staged

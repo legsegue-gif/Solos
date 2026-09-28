@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""Refuses the reference app's name in anything a commit or push carries,
+and any email address other than a noreply one in commit identities and
+messages.
+
+What is checked: file contents (text and binary, including UTF-16 strings),
+file and directory paths, commit messages, author and committer names and
+emails, and pushed ref names. The name is matched case-insensitively as a
+whole word (so an environment variable or path segment built on it counts),
+and with the "open" prefix; ordinary words that merely contain the same
+letters do not count. Retired names (RETIRED below) are refused the same
+way. Author, committer and tagger emails, and any address
+in a commit message (trailers included), must be GitHub noreply addresses
+(...@users.noreply.github.com) or noreply@anthropic.com; at commit time the
+configured author and committer identities are checked as well. Reports mask
+the address. File contents are not checked for emails (upstream iSH credits
+its contributors by address).
+
+On this machine (not in CI) it also refuses this machine's private values in
+contents, paths and messages: the home directory's path, and the app ID,
+bundle ID prefix and team ID set in ios/Config/Local.xcconfig (untracked).
+They are read at run time and never written anywhere; they cannot be
+allowlisted.
+
+    namecheck tree              tracked files in the working tree
+    namecheck staged            the index (pre-commit)
+    namecheck msg FILE          a commit message (commit-msg)
+    namecheck commits REV...    every commit git rev-list REV... lists:
+                                messages, identities, and every path and
+                                blob reachable from them but not from
+                                excluded revisions (e.g. --all, a..b)
+    namecheck prepush REMOTE    what `git push` sends (pre-push; refs on stdin)
+
+Allowlist: <repo>/tools/namecheck.allow, or the file given by --allow or
+NAMECHECK_ALLOW. One entry per line: path, tab, sha256 of the exact line
+(without its newline), tab, reason. Entries never hold the name itself; get
+the hash from the report (--hashes). Paths, messages and identities cannot be
+allowlisted. Exit status 1 when anything is found.
+"""
+
+import hashlib
+import os
+import re
+import subprocess
+import sys
+import threading
+
+# Spelled so this file does not match itself.
+_WORD = "m" + "inis"
+PATTERN = re.compile(
+    rb"(?<![a-z])" + _WORD.encode() + rb"(?![a-z])|open" + _WORD.encode(),
+    re.IGNORECASE,
+)
+MASK = b"<name>"
+# Retired names, spelled so this file does not match itself.
+RETIRED = [b"p" + b"solos\\d*", b"old" + b" project"]
+PATTERN = re.compile(PATTERN.pattern + b"|(?<![a-z])(?:" + b"|".join(RETIRED) + b")(?![a-z])",
+                     re.IGNORECASE)
+EMAIL = re.compile(rb"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+NOREPLY = re.compile(
+    rb"[A-Za-z0-9._%+-]+@users\.noreply\.github\.com|noreply@anthropic\.com",
+    re.IGNORECASE,
+)
+ZERO = "0" * 40
+
+
+def private_values():
+    values = []
+    home = os.path.expanduser("~")
+    if not os.environ.get("CI") and home.count("/") >= 2:
+        values.append(home)
+    local = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "ios", "Config", "Local.xcconfig")
+    if os.path.exists(local):
+        with open(local, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"\s*(APP_BUNDLE_ID|BUNDLE_ID_PREFIX|DEVELOPMENT_TEAM)\s*=\s*(\S+)", line)
+                if m and not m.group(2).startswith("com.example"):
+                    values.append(m.group(2))
+    if not values:
+        return None
+    return re.compile(b"|".join(re.escape(v.encode()) for v in values), re.IGNORECASE)
+
+
+PRIVATE = private_values()
+
+
+def git(*args, cwd=None, input=None):
+    return subprocess.run(
+        ["git", *args], cwd=cwd, input=input, check=True, capture_output=True
+    ).stdout
+
+
+class Scan:
+    def __init__(self, allow_path, show_hashes):
+        self.allow = set()
+        self.show_hashes = show_hashes
+        self.hits = 0
+        self.allowed = 0
+        if allow_path and os.path.exists(allow_path):
+            with open(allow_path, encoding="utf-8") as f:
+                for n, line in enumerate(f, 1):
+                    line = line.rstrip("\n")
+                    if not line.strip() or line.startswith("#"):
+                        continue
+                    parts = line.split("\t")
+                    if len(parts) < 3 or not parts[2].strip():
+                        sys.exit(f"namecheck: {allow_path}:{n}: need path<TAB>sha256<TAB>reason")
+                    self.allow.add((parts[0], parts[1]))
+
+    def report(self, where, text, digest=None):
+        self.hits += 1
+        shown = PATTERN.sub(MASK, text).decode("utf-8", "replace").strip()
+        if len(shown) > 160:
+            shown = shown[:157] + "..."
+        extra = f"  [{digest}]" if self.show_hashes and digest else ""
+        where = PATTERN.sub(MASK, where.encode()).decode("utf-8", "replace")
+        print(f"{where}: {shown}{extra}")
+
+    def private(self, where, data):
+        """This machine's private values: no allowlist, never shown."""
+        if PRIVATE is None:
+            return
+        for n, line in enumerate(data.split(b"\n"), 1):
+            if PRIVATE.search(line):
+                self.hits += 1
+                print(f"{where}:{n}: contains a private value of this machine "
+                      "(home path, app ID or team ID)")
+                return
+
+    def text(self, where, data):
+        """A message, identity or ref name: no allowlist."""
+        if isinstance(data, str):
+            data = data.encode()
+        self.private(where, data)
+        for line in data.splitlines():
+            if PATTERN.search(line):
+                self.report(where, line)
+
+    def emails(self, where, data):
+        """Identities and messages: only noreply addresses."""
+        if isinstance(data, str):
+            data = data.encode()
+        for line in data.splitlines():
+            bad = [m for m in EMAIL.findall(line) if not NOREPLY.fullmatch(m)]
+            if bad:
+                self.hits += 1
+                masked = ", ".join(m[:1].decode() + "***@***" for m in bad)
+                print(f"{where}: not a noreply email: {masked}")
+
+    def path(self, where, path):
+        self.private(f"{where}: path", path.encode())
+        if PATTERN.search(path.encode()):
+            self.report(f"{where}: path", path.encode())
+
+    def content(self, where, path, data):
+        self.private(where, data)
+        if b"\0" in data:
+            self.private(f"{where} (utf-16)", data.replace(b"\0", b""))
+        variants = [(data, "")]
+        if b"\0" in data:
+            # UTF-16 strings in binaries and resources.
+            variants.append((data.replace(b"\0", b""), " (utf-16)"))
+        seen = set()
+        for blob, note in variants:
+            if not PATTERN.search(blob):
+                continue
+            for n, line in enumerate(blob.split(b"\n"), 1):
+                if not PATTERN.search(line):
+                    continue
+                line = line.rstrip(b"\r")
+                digest = hashlib.sha256(line).hexdigest()
+                if (path, digest) in self.allow:
+                    self.allowed += 1
+                    continue
+                if digest in seen:
+                    continue
+                seen.add(digest)
+                self.report(f"{where}{note}" if note else f"{where}:{n}", line[:400], digest)
+
+
+def blobs(cwd, entries):
+    """entries: list of (sha, path). Yields (path, data) via one cat-file."""
+    if not entries:
+        return
+    proc = subprocess.Popen(
+        ["git", "cat-file", "--batch"],
+        cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    )
+
+    def feed():
+        for sha, _ in entries:
+            proc.stdin.write(sha.encode() + b"\n")
+        proc.stdin.close()
+
+    threading.Thread(target=feed, daemon=True).start()
+    for sha, path in entries:
+        header = proc.stdout.readline().split()
+        if len(header) < 3:  # missing object
+            continue
+        data = proc.stdout.read(int(header[2]))
+        proc.stdout.read(1)
+        if header[1] == b"blob":
+            yield path, data
+    proc.wait()
+
+
+def scan_tree(scan, cwd):
+    out = git("ls-files", "-z", "-s", cwd=cwd)
+    for rec in out.split(b"\0"):
+        if not rec:
+            continue
+        meta, path = rec.split(b"\t", 1)
+        mode, sha, _ = meta.split()
+        path = path.decode("utf-8", "replace")
+        scan.path(path, path)
+        if mode == b"160000":  # submodule
+            continue
+        full = os.path.join(cwd, path)
+        if os.path.islink(full) or not os.path.isfile(full):
+            continue
+        with open(full, "rb") as f:
+            scan.content(path, path, f.read())
+
+
+def scan_staged(scan, cwd):
+    for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
+        ident = git("var", var, cwd=cwd).rsplit(b" ", 2)[0]
+        scan.text(f"configured {var[4:-6].lower()}", ident)
+        scan.emails(f"configured {var[4:-6].lower()}", ident)
+    out = git("diff", "--cached", "--name-status", "-z", "--no-renames",
+              "--diff-filter=ACMRT", cwd=cwd)
+    fields = [f.decode("utf-8", "replace") for f in out.split(b"\0") if f]
+    paths = fields[1::2]
+    entries = []
+    for path in paths:
+        scan.path(path, path)
+        ls = git("ls-files", "-s", "-z", "--", path, cwd=cwd).split(b"\0")[0]
+        mode, sha, _ = ls.split(b"\t")[0].split()
+        if mode != b"160000":
+            entries.append((sha.decode(), path))
+    for path, data in blobs(cwd, entries):
+        scan.content(f"staged {path}", path, data)
+
+
+def scan_commits(scan, cwd, revs):
+    if not revs:
+        return
+    commits = git("rev-list", "--stdin", cwd=cwd,
+                  input="\n".join(revs).encode()).split()
+    for c in commits:
+        c = c.decode()
+        raw = git("cat-file", "commit", c, cwd=cwd)
+        head, _, message = raw.partition(b"\n\n")
+        short = c[:7]
+        for line in head.split(b"\n"):
+            if line.startswith((b"author ", b"committer ", b"tagger ")):
+                ident = line.rsplit(b" ", 2)[0]
+                kind = line.split(b" ")[0].decode()
+                scan.text(f"commit {short} {kind}", ident)
+                scan.emails(f"commit {short} {kind}", ident)
+            elif line.startswith((b"gpgsig", b"mergetag")):
+                scan.report(f"commit {short}", b"signed or merged-tag commit: check by hand")
+        scan.text(f"commit {short} message", message)
+        scan.emails(f"commit {short} message", message)
+    objs = git("rev-list", "--objects", "--stdin", cwd=cwd,
+               input="\n".join(revs).encode())
+    entries = []
+    seen_paths = set()
+    for line in objs.decode("utf-8", "replace").split("\n"):
+        if " " not in line:
+            continue
+        sha, path = line.split(" ", 1)
+        if path not in seen_paths:
+            seen_paths.add(path)
+            scan.path(path, path)
+        entries.append((sha, path))
+    # rev-list --objects lists trees and blobs; cat-file tells them apart.
+    types = git("cat-file", "--batch-check=%(objecttype)", cwd=cwd,
+                input="\n".join(s for s, _ in entries).encode()).split()
+    entries = [e for e, t in zip(entries, types) if t == b"blob"]
+    for path, data in blobs(cwd, entries):
+        scan.content(f"history {path}", path, data)
+
+
+def scan_prepush(scan, cwd, remote):
+    revs = []
+    for line in sys.stdin.read().splitlines():
+        parts = line.split()
+        if len(parts) != 4:
+            continue
+        local_ref, local_sha, remote_ref, remote_sha = parts
+        scan.text("pushed ref", local_ref)
+        scan.text("pushed ref", remote_ref)
+        if local_sha == ZERO:
+            continue  # deletion
+        revs.append(local_sha)
+        if remote_sha != ZERO:
+            try:
+                git("cat-file", "-e", remote_sha + "^{commit}", cwd=cwd)
+                revs.append("^" + remote_sha)
+            except subprocess.CalledProcessError:
+                pass
+    if revs:
+        # Anything the remote already has is excluded; a new branch on a new
+        # remote sends everything, so everything is checked.
+        try:
+            known = git("for-each-ref", "--format=^%(objectname)",
+                        f"refs/remotes/{remote}/", cwd=cwd).decode().split()
+        except subprocess.CalledProcessError:
+            known = []
+        scan_commits(scan, cwd, revs + known)
+
+
+def main():
+    args = sys.argv[1:]
+    allow = os.environ.get("NAMECHECK_ALLOW")
+    show_hashes = False
+    while args and args[0].startswith("--") and args[0] not in ("--all",):
+        opt = args.pop(0)
+        if opt == "--allow":
+            allow = args.pop(0)
+        elif opt == "--hashes":
+            show_hashes = True
+        else:
+            sys.exit(__doc__)
+    if not args:
+        sys.exit(__doc__)
+    cmd, rest = args[0], args[1:]
+    if git("rev-parse", "--is-bare-repository").strip() == b"true":
+        cwd = os.path.abspath(git("rev-parse", "--git-dir").decode().strip())
+    else:
+        cwd = git("rev-parse", "--show-toplevel").decode().strip()
+    if allow is None:
+        allow = os.path.join(cwd, "tools", "namecheck.allow")
+    scan = Scan(allow, show_hashes)
+    if cmd == "tree":
+        scan_tree(scan, cwd)
+    elif cmd == "staged":
+        scan_staged(scan, cwd)
+    elif cmd == "msg" and len(rest) == 1:
+        with open(rest[0], "rb") as f:
+            msg = b"\n".join(l for l in f.read().split(b"\n") if not l.startswith(b"#"))
+        scan.text("commit message", msg)
+        scan.emails("commit message", msg)
+    elif cmd == "commits":
+        scan_commits(scan, cwd, rest)
+    elif cmd == "prepush" and rest:
+        scan_prepush(scan, cwd, rest[0])
+    else:
+        sys.exit(__doc__)
+    note = f" ({scan.allowed} allowlisted)" if scan.allowed else ""
+    if scan.hits:
+        print(f"namecheck: {scan.hits} hit(s){note}. Write \"the reference app\" for the"
+              " name; use the GitHub noreply address for email; keep this machine's"
+              " paths and IDs in untracked files.", file=sys.stderr)
+        sys.exit(1)
+    if os.environ.get("NAMECHECK_VERBOSE"):
+        print(f"namecheck: clean{note}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

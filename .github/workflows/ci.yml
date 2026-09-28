@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Nothing pushed may name the reference app (tools/namecheck).
+  namecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan every commit
+        run: python3 tools/namecheck commits --all HEAD
+
+  core:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Core tests
+        working-directory: core
+        run: cargo test --workspace
+
+  # The app from a clean clone: the iSH kernel and rootfs, the guest CLI and
+  # the core from source, the project generated, built without signing.
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim, aarch64-unknown-linux-musl
+      - name: Tools
+        run: brew install meson ninja lld libarchive xcodegen
+      - name: Metal toolchain (the terminal's shaders)
+        run: xcodebuild -downloadComponent MetalToolchain
+      - name: Core and dependencies
+        working-directory: ios
+        run: PLATFORM_NAME=iphonesimulator ./build-core.sh && xcodegen generate
+      - name: Build
+        working-directory: ios
+        run: >
+          xcodebuild -project Solos.xcodeproj -scheme Solos
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build

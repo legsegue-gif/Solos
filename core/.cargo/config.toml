@@ -1,0 +1,5 @@
+# The guest CLI (crates/guest) is a static binary for the sandbox's Linux.
+# Rust ships the musl C runtime for this target; its own lld links it, so no
+# cross toolchain is needed.
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"

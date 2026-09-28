@@ -1,0 +1,123 @@
+name: Solos
+options:
+  developmentLanguage: en
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+packages:
+  Markdown:
+    url: https://github.com/swiftlang/swift-markdown
+    exactVersion: 0.9.0
+  SwiftMath:
+    url: https://github.com/mgriebling/SwiftMath
+    exactVersion: 1.7.3
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    # v1.18.0, pinned by commit (its tags carry a "v"). Later versions add a
+    # build plugin that every build machine would first have to trust.
+    revision: 7691f85b222a67a66b58499e1b2647443cf0dda7
+
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+
+settingGroups:
+  device:
+    INFOPLIST_FILE: Config/Device.plist
+    CODE_SIGN_ENTITLEMENTS: Config/Solos.entitlements
+  core:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_EMIT_LOC_STRINGS: YES
+    ARCHS: arm64
+    SWIFT_OBJC_BRIDGING_HEADER: Shared/Bridging-Header.h
+    HEADER_SEARCH_PATHS: "$(PROJECT_DIR)/Generated"
+    "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": "$(PROJECT_DIR)/../deps/out/ios-iphonesimulator/lib $(PROJECT_DIR)/../core/target/aarch64-apple-ios-sim/release"
+    "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": "$(PROJECT_DIR)/../deps/out/ios-iphoneos/lib $(PROJECT_DIR)/../core/target/aarch64-apple-ios/release"
+    # The core by path: next to it sits a .dylib of the same name, which the
+    # linker would otherwise prefer. force_load keeps the kernel's
+    # constructors and gadget tables, which nothing references by name.
+    "OTHER_LDFLAGS[sdk=iphonesimulator*]": "$(PROJECT_DIR)/../core/target/aarch64-apple-ios-sim/release/libsolos_ffi.a -Wl,-force_load,$(PROJECT_DIR)/../deps/out/ios-iphonesimulator/lib/libish.a -Wl,-force_load,$(PROJECT_DIR)/../deps/out/ios-iphonesimulator/lib/libfakefs.a -lish_emu -lsqlite3 -lresolv -framework Network -framework Security -framework SystemConfiguration"
+    "OTHER_LDFLAGS[sdk=iphoneos*]": "$(PROJECT_DIR)/../core/target/aarch64-apple-ios/release/libsolos_ffi.a -Wl,-force_load,$(PROJECT_DIR)/../deps/out/ios-iphoneos/lib/libish.a -Wl,-force_load,$(PROJECT_DIR)/../deps/out/ios-iphoneos/lib/libfakefs.a -lish_emu -lsqlite3 -lresolv -framework Network -framework Security -framework SystemConfiguration"
+
+targets:
+  Solos:
+    type: application
+    platform: iOS
+    sources:
+      - Solos
+      - Shared
+      - path: Generated
+        includes: ["*.swift"]
+      - path: ../deps/out/rootfs/alpine-rootfs.zip
+        buildPhase: resources
+    dependencies:
+      - package: Markdown
+      - package: SwiftMath
+      - package: SwiftTerm
+    preBuildScripts:
+      - name: Build Rust core
+        script: '"$PROJECT_DIR/build-core.sh"'
+        basedOnDependencyAnalysis: false
+    settings:
+      groups: [core, device]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
+        PRODUCT_NAME: Solos
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Solos
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Solos saves pictures from a chat to your photos when you ask it to."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Solos connects to model endpoints you configure, including ones on your local network."
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "0.1"
+
+  SolosTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: Solos
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        ARCHS: arm64
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID).tests
+        # The app module's bridging header comes along with `@testable import`.
+        HEADER_SEARCH_PATHS: "$(PROJECT_DIR)/Generated"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Solos.app/Solos"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  Probe:
+    type: application
+    platform: iOS
+    sources:
+      - Probe
+      - Shared
+      - path: Generated
+        includes: ["*.swift"]
+      - path: ../deps/out/rootfs/alpine-rootfs.zip
+        buildPhase: resources
+    preBuildScripts:
+      - name: Build Rust core
+        script: '"$PROJECT_DIR/build-core.sh"'
+        basedOnDependencyAnalysis: false
+    settings:
+      groups: [core, device]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID).probe
+        PRODUCT_NAME: SolosProbe
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+
+schemes:
+  Solos:
+    build:
+      targets:
+        Solos: all
+        SolosTests: [test]
+    test:
+      targets: [SolosTests]

@@ -1,0 +1,19 @@
+[package]
+name = "solos-ffi"
+description = "The Solos core as a library for apps: async calls in, events out."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+name = "solos_ffi"
+
+[dependencies]
+solos-api.workspace = true
+solos-core.workspace = true
+solos-sandbox-ish = { path = "../sandbox-ish" }
+serde_json.workspace = true
+tokio.workspace = true
+uniffi.workspace = true

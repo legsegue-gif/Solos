@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses the reference app's name in the commit message (tools/namecheck).
+exec python3 "$(dirname "$0")/../namecheck" msg "$1"

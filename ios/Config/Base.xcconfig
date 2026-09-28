@@ -1,0 +1,11 @@
+// Shared build settings. Personal values (team, app ID) belong in
+// Local.xcconfig, which is not committed: copy Local.xcconfig.example.
+
+// The app's ID; the probe and the tests append .probe and .tests. This
+// default builds and runs in the simulator; WeatherKit answers only an ID it
+// is enabled for in the developer portal, so set your own in Local.xcconfig.
+APP_BUNDLE_ID = com.example.solos
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
+
+#include? "Local.xcconfig"

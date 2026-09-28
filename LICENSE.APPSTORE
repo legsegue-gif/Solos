@@ -1,0 +1,13 @@
+Additional permission under GNU GPL version 3 section 7
+
+As an additional permission to the GNU General Public License version 3,
+the copyright holders of Solos give you permission to distribute Solos,
+and works based on it, through Apple's App Store (and similar app
+distribution services that impose usage rules or technical restrictions on
+the installed application), provided that the Corresponding Source of the
+distributed version is made available under the terms of the GNU General
+Public License.
+
+This permission covers the code whose copyright is held by the Solos
+authors. Third-party components keep their own licences and any
+exceptions granted by their own authors (for iSH, see deps/ish/LICENSE.IOS).

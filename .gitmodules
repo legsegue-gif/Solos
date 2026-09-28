@@ -1,0 +1,4 @@
+[submodule "deps/ish"]
+	path = deps/ish
+	url = https://github.com/legsegue-gif/solos-ish.git
+	ignore = untracked

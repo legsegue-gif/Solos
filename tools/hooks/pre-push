@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuses the reference app's name in every commit being pushed: contents,
+# paths, messages, identities and ref names (tools/namecheck).
+exec python3 "$(dirname "$0")/../namecheck" prepush "$1"

@@ -1,0 +1,13 @@
+[package]
+name = "solos-api"
+description = "Types shared by the Solos core and its clients: settings, sessions, messages, events, errors."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uniffi.workspace = true

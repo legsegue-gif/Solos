@@ -1,0 +1,8 @@
+// Copy to Local.xcconfig and fill in. Local.xcconfig is ignored by git.
+
+// Your Apple developer team ID (needed for device builds).
+DEVELOPMENT_TEAM =
+
+// An app ID of your own, for a device build under your team. WeatherKit
+// answers only an ID it is enabled for in the developer portal.
+APP_BUNDLE_ID = com.example.solos

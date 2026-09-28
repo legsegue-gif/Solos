@@ -1,0 +1,24 @@
+# Rust
+/core/target/
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcodeproj/
+!*.xcodeproj/project.xcworkspace/
+/ios/build/
+/ios/Generated/
+
+# Local, never committed: team ID, bundle identifier prefix, signing.
+/ios/Config/Local.xcconfig
+
+# Native dependency build outputs (rebuilt from source by deps/*.sh)
+/deps/out/
+/deps/work/
+
+# macOS
+.DS_Store
+
+
+# Python bytecode (tools/)
+__pycache__/

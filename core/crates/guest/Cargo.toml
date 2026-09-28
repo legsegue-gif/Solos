@@ -1,0 +1,15 @@
+[package]
+name = "solos-guest"
+description = "`solos`, the command inside the sandbox that reaches the app's tools."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# No dependencies: this runs in the guest and only speaks plain HTTP to
+# 127.0.0.1, and every dependency would be bytes carried inside the app.
+[dependencies]
+
+[[bin]]
+name = "solos"
+path = "src/main.rs"

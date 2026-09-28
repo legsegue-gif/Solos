@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Only what a registered capability needs. On a device both must also be
+     enabled on the App ID; WeatherKit is switched on in the developer portal. -->
+<dict>
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<key>com.apple.developer.weatherkit</key>
+	<true/>
+</dict>
+</plist>
