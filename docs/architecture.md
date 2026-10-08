@@ -195,7 +195,7 @@ loop:
   times and reports the distribution. Changing a description needs an eval
   run before and after.
 - Tool set: `shell`, `shell_jobs`, `file_read`, `file_write`, `file_edit`,
-  `read_image`, `browser`, and one tool per device capability. Device
+  `read_image`, `skill_install`, `browser`, and one tool per device capability. Device
   capabilities are registered only when the platform reports them
   available. Whether some rarely used capabilities are folded into a single
   `device` tool is decided by eval data, not up front.
@@ -222,7 +222,8 @@ trait Sandbox {
   desktop CLI.
 - Layout inside the guest: `/solos/ws` (the workspace, the default working
   directory for the model's commands; the terminal opens at home), with the
-  user's attachments in `/solos/ws/attachments`. Paths the model sees map one-to-one to
+  user's attachments in `/solos/ws/attachments` and skills in
+  `/solos/ws/skills`. Paths the model sees map one-to-one to
   `solos://` URLs the UI can open.
 
 ### 4.8 `bridge` — guest CLI
@@ -243,6 +244,37 @@ trait Sandbox {
   `solos tools`. Exit codes: 0 ok, 1 the tool said no, 2 bad arguments,
   3 token refused, 4 no such tool.
 - A script reaches exactly the tools the model has, and nothing else.
+
+### 4.9 `skills`
+
+- A skill is a folder `/solos/ws/skills/<folder>/` holding a `SKILL.md`.
+  The folder is the skill's identity; `name` and `description` come from the
+  file's front matter (the folder name and nothing when it has none). The
+  filesystem is the only record: a folder that appears there — installed,
+  copied or written by the model — is a skill from the next turn on, and one
+  that disappears is gone. Which skills are turned off is a setting, by
+  folder.
+- The system prompt always has a skills section: where skills live, how to
+  install one, and the skills that are on (name, description, path). It is
+  there with no skill installed, so the first install in a chat is done the
+  way the app knows about. The prompt changes only when the skills do.
+- Installing from GitHub is the core's own: it takes a link to a repository
+  or to a folder in one, downloads the archive (`codeload.github.com`, no
+  git or curl needed in the guest), picks the folder with the `SKILL.md`
+  (refusing, with the candidates, when a repository holds several), and
+  replaces any earlier copy of that folder at once. The `skill_install` tool
+  and Settings call the same function. The tool returns the skill's
+  `SKILL.md`, so the model can do what it asks (install packages) in the
+  same turn.
+
+### 4.10 `mcp`
+
+- Servers are kept in the store as the usual `mcpServers` entries (HTTP:
+  `url`, `headers`; stdio: `command`, `args`, `env`), each turned on or off.
+- HTTP servers are spoken to by the core. Stdio servers run in the guest,
+  started and kept by the core through the sandbox.
+- The prompt always says how to add a server; the tools of servers that are
+  on are offered to the model.
 
 ---
 
@@ -357,5 +389,7 @@ Each step ends with the definition of done in section 6.
 5. **Device capabilities**, with the alarm list.
 6. **Open-source readiness**: localisation (en, zh-Hans, zh-Hant), README,
    contributor guide, licence headers, dependency build from a clean clone.
+
+7. **Skills**, then **MCP servers**.
 
 Android starts after step 6 and adds a UI and platform services only.

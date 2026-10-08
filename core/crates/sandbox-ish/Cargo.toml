@@ -12,7 +12,7 @@ async-trait.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
-zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+zip.workspace = true
 
 [build-dependencies]
 cc = "1.2.41"

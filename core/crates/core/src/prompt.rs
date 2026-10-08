@@ -3,12 +3,13 @@
 //! Every sentence that names a command, a path or a capability must be true
 //! in the app as shipped; check it there before adding it. What depends on
 //! the sandbox comes from the sandbox (`SandboxInfo::notes`), which is the
-//! only place that can check it. Nothing here varies between requests, so
-//! a provider's prompt cache keeps matching.
+//! only place that can check it. Nothing here varies between requests but
+//! the installed skills, which change only when the user or the model
+//! installs one, so a provider's prompt cache keeps matching.
 
 use crate::sandbox::SandboxInfo;
 
-pub fn system_prompt(sandbox: &SandboxInfo, tools: &crate::tools::Registry) -> String {
+pub fn system_prompt(sandbox: &SandboxInfo, tools: &crate::tools::Registry, skills: &[solos_api::Skill]) -> String {
     let mut out = format!(
         "You are Solos, a personal AI agent running on the user's own device. \
 You can run commands in a Linux sandbox on the device. Do the work the user asks for, check the result, and report plainly. \
@@ -28,6 +29,9 @@ Files the user attaches are copied into /solos/ws/attachments.
     out.push_str(GUIDANCE);
     if tools.get("browser").is_some() {
         out.push_str(BROWSER);
+    }
+    if tools.get("skill_install").is_some() {
+        out.push_str(&crate::skills::prompt_section(skills));
     }
     out
 }
@@ -70,17 +74,17 @@ mod tests {
     #[test]
     fn the_prompt_is_the_same_every_time_and_carries_the_sandbox_notes() {
         let tools = crate::tools::Registry::builtin();
-        let a = system_prompt(&info("- no curl here"), &tools);
-        assert_eq!(a, system_prompt(&info("- no curl here"), &tools));
+        let a = system_prompt(&info("- no curl here"), &tools, &[]);
+        assert_eq!(a, system_prompt(&info("- no curl here"), &tools, &[]));
         assert!(a.contains("About this sandbox:\n- no curl here\n"));
-        assert!(!system_prompt(&info(""), &tools).contains("About this sandbox"));
+        assert!(!system_prompt(&info(""), &tools, &[]).contains("About this sandbox"));
         assert!(!a.contains("`browser`"), "no browser tool, no browser guidance");
     }
 
     /// Each of these was missing once and the model failed visibly for it.
     #[test]
     fn the_guidance_keeps_what_was_learned() {
-        let p = system_prompt(&info(""), &crate::tools::Registry::builtin());
+        let p = system_prompt(&info(""), &crate::tools::Registry::builtin(), &[]);
         for must in [
             "![what it shows](solos://ws/chart.png)",
             "![the clip](solos://ws/clip.mp4)",
@@ -90,6 +94,8 @@ mod tests {
             "20,000 characters",
             "/solos/ws/attachments",
             "`file_edit` (after `file_read`)",
+            "use `skill_install`",
+            "No skills are installed.",
         ] {
             assert!(p.contains(must), "the prompt no longer says: {must}");
         }

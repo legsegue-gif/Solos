@@ -51,9 +51,27 @@ visible anywhere else), media playback control, health (read), weather,
 maps (search / route / ETA), vision (OCR / classify), natural language,
 open URL / app, device info.
 
+### Skills
+- A skill is a folder with a `SKILL.md` (a `name` and a `description` at the
+  top, instructions below) and whatever scripts and files it needs, in the
+  common format other agents use.
+- Installed from a GitHub link — by the model when the user asks in a chat,
+  or by the user in Settings — or written by the model. Installing the same
+  skill again updates it.
+- The model is told which skills are installed in every chat and reads a
+  skill's instructions when a task calls for it.
+- Settings: list, view, turn on and off, delete, add from a link.
+
+### MCP servers
+- Servers over HTTP and over stdio (run inside the Linux sandbox).
+- Added by the model when the user asks in a chat, or by the user in
+  Settings (pasting the usual `mcpServers` JSON); the model can use a
+  server's tools as soon as it is added.
+- Settings: list, turn on and off, delete, see each server's tools.
+
 ### Settings
 Endpoints and keys (keys in the Keychain), default model, thinking, browser
-preferences, sandbox status.
+preferences, sandbox status, skills, MCP servers.
 
 ## Also in scope
 - Localisation from day one: English source strings; Simplified and
@@ -68,8 +86,8 @@ preferences, sandbox status.
 
 ## Out of scope (first release)
 Voice chat and speech (TTS / STT), OAuth sign-in (Claude / Codex / Kimi),
-iCloud sync and backup, skills, "soul" / persona and long-term memory, MCP
-servers, environment variables UI, model groups and fallback routing, home
+iCloud sync and backup, "soul" / persona and long-term memory, MCP OAuth
+sign-in, environment variables UI, model groups and fallback routing, home
 screen widget and Live Activities, share extension, Files app provider,
 App Intents / Shortcuts, HomeKit, NFC, Bluetooth, FFmpeg, remote folder
 mounts (rclone), Face ID app lock, web apps, session folders, cross-device

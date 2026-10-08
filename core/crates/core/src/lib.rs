@@ -10,6 +10,7 @@ pub mod engine;
 pub mod files;
 pub mod mirrors;
 pub mod prompt;
+pub mod skills;
 pub mod providers;
 pub mod sandbox;
 pub mod store;

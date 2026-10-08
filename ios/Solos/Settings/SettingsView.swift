@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var clearError: CoreError?
     /// Read again whenever Settings shows, since it is changed on its page.
     @State private var mirrors: [PackageMirror] = []
+    /// Read again whenever Settings shows, since it is changed on its page.
+    @State private var skillCount = 0
 
     var body: some View {
         NavigationStack {
@@ -85,6 +87,13 @@ struct SettingsView: View {
                     Text("Browser")
                 }
                 mirrorsSection
+                Section {
+                    NavigationLink { SkillsView() } label: {
+                        LabeledContent(String(localized: "Skills"), value: skillCount == 0 ? String(localized: "None") : String(skillCount))
+                    }
+                } header: {
+                    Text("Extensions")
+                }
             }
             .task { await loadSandbox() }
             .sheet(isPresented: $browsingFiles, onDismiss: { Task { await loadSandbox() } }) { FileBrowser() }
@@ -97,6 +106,7 @@ struct SettingsView: View {
             .onAppear {
                 browserAgent = BrowserPrefs.agent
                 mirrors = app.core?.chosenPackageMirrors() ?? []
+                skillCount = app.core?.skills().count ?? 0
             }
             .navigationTitle(String(localized: "Settings"))
             .navigationBarTitleDisplayMode(.inline)

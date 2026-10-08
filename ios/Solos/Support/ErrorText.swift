@@ -45,6 +45,14 @@ extension CoreError {
             return String(localized: "This chat no longer exists.")
         case .Sandbox(let detail):
             return String(localized: "The Linux sandbox is not available: \(detail)")
+        case .NotASkillSource(let source):
+            return String(localized: "Not a GitHub link: \(source). Use a link to a repository, or to a folder in one.")
+        case .NoSingleSkill(let source, let candidates):
+            return candidates.isEmpty
+                ? String(localized: "There is no SKILL.md in \(source), so it is not a skill.")
+                : String(localized: "This repository holds \(String(candidates.count)) skills. Choose one below.")
+        case .NoSuchSkill(let folder):
+            return String(localized: "There is no skill in the folder \(folder).")
         case .Storage(let detail):
             return String(localized: "Could not save: \(detail)")
         case .Protocol(let detail):

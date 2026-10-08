@@ -28,6 +28,7 @@ tokio-util = "0.7.19"
 tracing = "0.1.44"
 uniffi = "0.32.1"
 uuid = { version = "1.26.1", features = ["v4"] }
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 
 # The guest CLI is carried inside the app: small beats fast for it.
 [profile.release.package.solos-guest]

@@ -685,3 +685,60 @@ async fn package_mirrors_are_chosen_per_kind_kept_across_a_restart_and_unknown_o
     assert_eq!(chosen(&engine), vec![(MirrorKind::Alpine, "official".into()), (MirrorKind::Pip, "tuna".into()), (MirrorKind::Npm, "npmmirror".into())]);
     assert!(engine.choose_package_mirrors_if_fresh().await.unwrap().is_empty(), "the host shell is never a fresh system");
 }
+
+#[tokio::test]
+async fn a_skill_folder_reaches_the_prompt_until_turned_off_or_removed() {
+    let (engine, scripted) = engine(vec![text("one"), text("two"), text("three")], Some("k")).await;
+    let dir = engine.workspace_dir().join("skills/trains");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("SKILL.md"), "---\nname: trains\ndescription: Look up train tickets.\n---\nRun q.py").unwrap();
+    let listed = "- trains: Look up train tickets. (/solos/ws/skills/trains/SKILL.md)";
+    let mut rx = engine.subscribe();
+    let s = engine.create_session(None).await.unwrap();
+    let system = |i: usize| scripted.requests.lock().unwrap()[i].system.clone();
+
+    engine.send(s.id.clone(), "a".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+    assert!(system(0).contains(listed), "{}", system(0));
+    assert_eq!(engine.skill_instructions("trains".into()).unwrap(), "---\nname: trains\ndescription: Look up train tickets.\n---\nRun q.py");
+
+    engine.set_skill_enabled("trains".into(), false).await.unwrap();
+    assert!(!engine.skills()[0].enabled);
+    engine.send(s.id.clone(), "b".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+    assert!(!system(1).contains(listed));
+    assert!(system(1).contains("No skills are installed."));
+
+    engine.remove_skill("trains".into()).await.unwrap();
+    assert!(engine.skills().is_empty());
+    assert!(!dir.exists());
+    assert!(matches!(engine.remove_skill("trains".into()).await, Err(CoreError::NoSuchSkill { .. })));
+}
+
+#[tokio::test]
+async fn turned_off_skills_stay_off_across_a_restart() {
+    let dir = std::env::temp_dir().join(format!("solos-skills-{}", uuid::Uuid::new_v4()));
+    let open = || async {
+        Engine::open(EngineConfig {
+            data_dir: dir.clone(),
+            sandbox: Arc::new(HostSandbox::new(dir.join("guest"))),
+            tools: Registry::builtin(),
+            secrets: Arc::new(Key(Some("k"))),
+            capture_dir: None,
+            provider_factory: None,
+        })
+        .await
+        .unwrap()
+    };
+    let engine = open().await;
+    for folder in ["a", "b"] {
+        let d = engine.workspace_dir().join("skills").join(folder);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("SKILL.md"), "x").unwrap();
+    }
+    engine.set_skill_enabled("b".into(), false).await.unwrap();
+    drop(engine);
+    let engine = open().await;
+    let on: Vec<(String, bool)> = engine.skills().into_iter().map(|s| (s.folder, s.enabled)).collect();
+    assert_eq!(on, vec![("a".into(), true), ("b".into(), false)]);
+}

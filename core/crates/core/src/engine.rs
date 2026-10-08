@@ -61,6 +61,9 @@ struct Inner {
     /// not in it uses its official source. Stored on its own, like the
     /// windows, so a settings record from before it still reads.
     package_mirrors: RwLock<std::collections::BTreeMap<String, String>>,
+    /// Skills the user turned off, by folder. The skills themselves are the
+    /// folders on disk (`skills`).
+    disabled_skills: RwLock<std::collections::BTreeSet<String>>,
     sessions: Mutex<HashMap<String, Arc<Slot>>>,
     /// Open terminals by id. A terminal belongs to no session.
     terminals: std::sync::Mutex<HashMap<String, Arc<dyn crate::sandbox::Terminal>>>,
@@ -139,6 +142,12 @@ impl Engine {
             .map_err(storage)?
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
+        let disabled_skills: std::collections::BTreeSet<String> = store
+            .setting("skills_disabled")
+            .await
+            .map_err(storage)?
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
         // Before the first boot this only records them; boot writes them.
         for (kind, id) in crate::mirrors::kinds().into_iter().filter_map(|k| package_mirrors.get(crate::mirrors::key(k)).map(|id| (k, id))) {
             if let Err(e) = apply_mirror(cfg.sandbox.as_ref(), kind, id).await {
@@ -166,6 +175,7 @@ impl Engine {
                 windows: RwLock::new(windows),
                 custom_windows: RwLock::new(custom_windows),
                 package_mirrors: RwLock::new(package_mirrors),
+                disabled_skills: RwLock::new(disabled_skills),
                 sessions: Mutex::new(HashMap::new()),
                 terminals: std::sync::Mutex::new(HashMap::new()),
                 events,
@@ -285,6 +295,50 @@ impl Engine {
         })
         .await
         .map_err(|e| CoreError::Internal { detail: e.to_string() })?
+    }
+
+    /// The installed skills, by folder.
+    pub fn skills(&self) -> Vec<Skill> {
+        crate::skills::list(&self.inner.sandbox.workspace_dir(), &self.inner.disabled_skills.read().unwrap())
+    }
+
+    /// Install a skill from a GitHub link (as `skill_install` does) and turn
+    /// it on: asking for it is asking to use it.
+    pub async fn install_skill(&self, source: String) -> Result<Skill, CoreError> {
+        let done = crate::skills::install(&source, &self.inner.sandbox.workspace_dir()).await?;
+        self.set_skill_enabled(done.folder.clone(), true).await?;
+        self.skills()
+            .into_iter()
+            .find(|s| s.folder == done.folder)
+            .ok_or(CoreError::NoSuchSkill { folder: done.folder })
+    }
+
+    pub async fn remove_skill(&self, folder: String) -> Result<(), CoreError> {
+        let ws = self.inner.sandbox.workspace_dir();
+        let f = folder.clone();
+        tokio::task::spawn_blocking(move || crate::skills::remove(&ws, &f))
+            .await
+            .map_err(|e| CoreError::Internal { detail: e.to_string() })??;
+        // A skill installed again under this folder starts on.
+        self.set_skill_enabled(folder, true).await
+    }
+
+    pub async fn set_skill_enabled(&self, folder: String, enabled: bool) -> Result<(), CoreError> {
+        let snapshot = {
+            let mut off = self.inner.disabled_skills.write().unwrap();
+            let changed = if enabled { off.remove(&folder) } else { off.insert(folder) };
+            if !changed {
+                return Ok(());
+            }
+            off.clone()
+        };
+        let value = serde_json::to_value(snapshot).map_err(|e| CoreError::Internal { detail: e.to_string() })?;
+        self.inner.store.put_setting("skills_disabled", value).await.map_err(storage)
+    }
+
+    /// A skill's `SKILL.md`, for showing it.
+    pub fn skill_instructions(&self, folder: String) -> Result<String, CoreError> {
+        crate::skills::instructions(&self.inner.sandbox.workspace_dir(), &folder)
     }
 
     pub fn workspace_dir(&self) -> std::path::PathBuf {
@@ -846,7 +900,7 @@ impl Engine {
         let cfg = TurnConfig {
             session_id: session_id.clone(),
             model: choice.model.clone(),
-            system: crate::prompt::system_prompt(&self.inner.sandbox.info(), &self.inner.tools),
+            system: crate::prompt::system_prompt(&self.inner.sandbox.info(), &self.inner.tools, &self.skills()),
             thinking: live.info.thinking.unwrap_or(self.settings().thinking),
             workspace: Some(self.inner.sandbox.workspace_dir()),
             window: self.window_for(&choice),

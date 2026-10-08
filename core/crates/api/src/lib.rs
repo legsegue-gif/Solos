@@ -78,6 +78,21 @@ pub struct PackageMirror {
     pub region: String,
 }
 
+/// An installed skill: a folder in the workspace's `skills` folder that
+/// holds a `SKILL.md`.
+#[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Skill {
+    /// The folder's name: what the skill is known by.
+    pub folder: String,
+    /// From the `SKILL.md`'s front matter; the folder's name when it has none.
+    pub name: String,
+    /// From the front matter; empty when it has none.
+    pub description: String,
+    /// The folder as the guest sees it (`/solos/ws/skills/<folder>`).
+    pub path: String,
+    pub enabled: bool,
+}
+
 /// How long a source took to answer; `None` when it failed or took too long.
 #[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct MirrorSpeed {
@@ -350,6 +365,15 @@ pub enum CoreError {
     NoSuchTerminal { terminal_id: String },
     #[error("sandbox: {detail}")]
     Sandbox { detail: String },
+    /// Not a link to a GitHub repository or to a folder in one.
+    #[error("not a GitHub link: {source_text}")]
+    NotASkillSource { source_text: String },
+    /// The repository or folder has no `SKILL.md`; or it has several, at
+    /// `candidates`, and the link must name one of their folders.
+    #[error("{} SKILL.md found in {source_text}", candidates.len())]
+    NoSingleSkill { source_text: String, candidates: Vec<String> },
+    #[error("no skill in folder {folder}")]
+    NoSuchSkill { folder: String },
     #[error("storage: {detail}")]
     Storage { detail: String },
     #[error("malformed response: {detail}")]

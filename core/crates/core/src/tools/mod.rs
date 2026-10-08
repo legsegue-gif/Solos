@@ -12,6 +12,7 @@ pub mod files;
 pub mod image;
 pub mod jobs;
 pub mod shell;
+pub mod skills;
 
 use crate::sandbox::Sandbox;
 use async_trait::async_trait;
@@ -92,6 +93,7 @@ impl Registry {
         r.add(Arc::new(shell::Shell(jobs.clone())));
         r.add(Arc::new(jobs::ShellJobs(jobs)));
         r.add(Arc::new(image::ReadImage));
+        r.add(Arc::new(skills::SkillInstall));
         for t in files::tools() {
             r.add(t);
         }

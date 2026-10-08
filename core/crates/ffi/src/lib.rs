@@ -348,6 +348,29 @@ impl SolosCore {
         self.run(|e| async move { e.choose_package_mirrors_if_fresh().await }).await
     }
 
+    /// The installed skills, by folder.
+    pub fn skills(&self) -> Vec<Skill> {
+        self.engine.skills()
+    }
+
+    /// Installs (or updates) a skill from a GitHub link and turns it on.
+    pub async fn install_skill(&self, source: String) -> Result<Skill, CoreError> {
+        self.run(|e| async move { e.install_skill(source).await }).await
+    }
+
+    pub async fn remove_skill(&self, folder: String) -> Result<(), CoreError> {
+        self.run(|e| async move { e.remove_skill(folder).await }).await
+    }
+
+    pub async fn set_skill_enabled(&self, folder: String, enabled: bool) -> Result<(), CoreError> {
+        self.run(|e| async move { e.set_skill_enabled(folder, enabled).await }).await
+    }
+
+    /// A skill's `SKILL.md`.
+    pub fn skill_instructions(&self, folder: String) -> Result<String, CoreError> {
+        self.engine.skill_instructions(folder)
+    }
+
     /// Deletes the browser tool's saved pages and screenshots; returns the
     /// bytes freed.
     pub async fn clear_temporary_files(&self) -> Result<u64, CoreError> {
