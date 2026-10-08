@@ -7,6 +7,8 @@ import Observation
 @Observable
 final class AppCore {
     private(set) var core: SolosCore?
+    /// The folders shared with the model; opened with the core.
+    let mountStore = MountStore()
     private(set) var startupError: CoreError?
     private(set) var sessions: [SessionInfo] = []
     /// Set by a chat that wants a fresh one opened in its place.
@@ -42,6 +44,7 @@ final class AppCore {
             self.core = core
             DownloadCenter.shared.workspace = URL(fileURLWithPath: core.workspaceDir())
             settings = core.settings()
+            mountStore.start(core: core)
             #if DEBUG
             // Testing the context limits on screen without filling a real
             // model's window: SOLOS_TEST_WINDOW sets the default model's.

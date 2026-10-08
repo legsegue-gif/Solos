@@ -52,6 +52,19 @@ fn endpoint_on() -> bool {
     true
 }
 
+/// A folder of the device the user chose to share with the model; it shows
+/// as `/solos/mnt/<name>`.
+#[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Mount {
+    /// What the model writes in a path: no slash, not hidden.
+    pub name: String,
+    /// Where the folder is on the device, with the system's permission to it
+    /// held by the app while it runs.
+    pub path: String,
+    /// Whether the model may change anything in it.
+    pub writable: bool,
+}
+
 /// A model on a particular endpoint.
 #[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModelChoice {

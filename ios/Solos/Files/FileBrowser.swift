@@ -119,7 +119,7 @@ struct FileBrowser: View {
             Button { importing = true } label: {
                 Label(String(localized: "Import file"), systemImage: "plus")
             }
-            .disabled(!GuestPath.isWritable(path))
+            .disabled(!GuestPath.isWritable(path, mounts: mounts))
             Divider()
             Picker(String(localized: "Sort by"), selection: $sort) {
                 ForEach(FileSort.allCases, id: \.self) { Text($0.label).tag($0) }
@@ -134,7 +134,7 @@ struct FileBrowser: View {
 
     @ViewBuilder
     private func row(_ entry: FileEntry) -> some View {
-        let writable = GuestPath.isWritable(entry.guestPath)
+        let writable = GuestPath.isWritable(entry.guestPath, mounts: mounts)
         Button {
             if entry.isDirectory { path = entry.guestPath } else { previewing = entry.url }
         } label: {
@@ -181,18 +181,35 @@ struct FileBrowser: View {
         app.core?.guestRootDir().map { URL(fileURLWithPath: $0) }
     }
 
+    /// The folders shared with the model, which show under /solos/mnt.
+    private var mounts: [Mount] { app.core?.mounts() ?? [] }
+
     private func device(_ guest: String) -> URL? {
         guard let root = guestRoot else { return nil }
-        return GuestPath.device(guest, root: root, workspace: app.core.map { URL(fileURLWithPath: $0.workspaceDir()) })
+        return GuestPath.device(guest, root: root, workspace: app.core.map { URL(fileURLWithPath: $0.workspaceDir()) }, mounts: mounts)
     }
 
     private func load() {
+        let shared = mounts
+        // /solos/mnt is not in the Linux system: it lists the shared folders,
+        // and /solos shows it beside ws.
+        if path == GuestPath.mountsRoot {
+            entries = shared.map {
+                FileEntry(url: URL(fileURLWithPath: $0.path), name: $0.name, guestPath: GuestPath.child(path, $0.name),
+                          isDirectory: true, size: 0, modified: nil)
+            }
+            .sorted(by: FileSort.order(sort, ascending: ascending, foldersFirst: foldersFirst))
+            return
+        }
         guard let dir = device(path) else {
             entries = []
             return
         }
-        entries = FileEntry.list(dir, guestPath: path, showHidden: showHidden)
-            .sorted(by: FileSort.order(sort, ascending: ascending, foldersFirst: foldersFirst))
+        var found = FileEntry.list(dir, guestPath: path, showHidden: showHidden)
+        if path == "/solos", !shared.isEmpty, !found.contains(where: { $0.name == "mnt" }) {
+            found.append(FileEntry(url: dir, name: "mnt", guestPath: GuestPath.mountsRoot, isDirectory: true, size: 0, modified: nil))
+        }
+        entries = found.sorted(by: FileSort.order(sort, ascending: ascending, foldersFirst: foldersFirst))
     }
 
     private func importFiles(_ urls: [URL]) {
@@ -220,8 +237,8 @@ struct FileBrowser: View {
     }
 
     private func transfer(_ entry: FileEntry, to guestFolder: String, move: Bool) {
-        guard GuestPath.isWritable(guestFolder), let dir = device(guestFolder) else {
-            problem = String(localized: "Files can only be put in the workspace (/solos/ws).")
+        guard GuestPath.isWritable(guestFolder, mounts: mounts), let dir = device(guestFolder) else {
+            problem = String(localized: "Files can only be put in the workspace (/solos/ws) or a shared folder that allows changes.")
             return
         }
         let target = FileEntry.free(dir.appendingPathComponent(entry.name))
@@ -242,10 +259,23 @@ struct FileBrowser: View {
 /// Paths as the guest names them.
 enum GuestPath {
     static let workspace = "/solos/ws"
+    /// Where the folders the user shares with the model show.
+    static let mountsRoot = "/solos/mnt"
 
-    /// Inside the workspace, the one place the app may change.
-    static func isWritable(_ path: String) -> Bool {
-        path == workspace || path.hasPrefix(workspace + "/")
+    /// The shared folder a path is in, and the rest of the path inside it.
+    static func mount(_ path: String, in mounts: [Mount]) -> (mount: Mount, rest: String)? {
+        guard path.hasPrefix(mountsRoot + "/") else { return nil }
+        let after = path.dropFirst(mountsRoot.count + 1)
+        let name = String(after.prefix(while: { $0 != "/" }))
+        guard let found = mounts.first(where: { $0.name == name }) else { return nil }
+        return (found, String(after.dropFirst(name.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+    }
+
+    /// Inside the workspace, or in a shared folder the user allowed changes
+    /// in: the places the app may change.
+    static func isWritable(_ path: String, mounts: [Mount] = []) -> Bool {
+        if path == workspace || path.hasPrefix(workspace + "/") { return true }
+        return mount(path, in: mounts)?.mount.writable ?? false
     }
 
     static func parent(_ path: String) -> String {
@@ -272,8 +302,12 @@ enum GuestPath {
     /// The device folder for a guest path. The workspace is its own folder
     /// on the device (the guest sees it through a mount), so it is mapped
     /// directly rather than through the guest's tree.
-    static func device(_ guest: String, root: URL, workspace: URL?) -> URL {
-        if let workspace, isWritable(guest) {
+    static func device(_ guest: String, root: URL, workspace: URL?, mounts: [Mount] = []) -> URL {
+        if let (shared, rest) = mount(guest, in: mounts) {
+            let base = URL(fileURLWithPath: shared.path)
+            return rest.isEmpty ? base : base.appendingPathComponent(rest)
+        }
+        if let workspace, guest == self.workspace || guest.hasPrefix(self.workspace + "/") {
             let rest = guest.dropFirst(self.workspace.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             return rest.isEmpty ? workspace : workspace.appendingPathComponent(rest)
         }

@@ -87,6 +87,8 @@ pub trait ToolSource: Send + Sync {
 pub struct Registry {
     tools: BTreeMap<String, Arc<dyn Tool>>,
     sources: Vec<Arc<dyn ToolSource>>,
+    /// The folders the user shares; the file tools read it.
+    mounts: Arc<crate::mounts::Mounts>,
 }
 
 impl Registry {
@@ -102,10 +104,16 @@ impl Registry {
         r.add(Arc::new(jobs::ShellJobs(jobs)));
         r.add(Arc::new(image::ReadImage));
         r.add(Arc::new(skills::SkillInstall));
-        for t in files::tools() {
+        for t in files::tools(r.mounts.clone()) {
             r.add(t);
         }
+        r.add_source(Arc::new(crate::mounts::MountTools(r.mounts.clone())));
         r
+    }
+
+    /// The table of shared folders the tools of this registry use.
+    pub fn mounts(&self) -> Arc<crate::mounts::Mounts> {
+        self.mounts.clone()
     }
 
     pub fn add(&mut self, tool: Arc<dyn Tool>) {

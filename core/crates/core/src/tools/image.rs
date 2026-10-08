@@ -35,8 +35,9 @@ impl Tool for ReadImage {
         };
         let workspace = ctx.sandbox.workspace_dir();
         let Some(host) = crate::files::resolve_argument(path, &workspace) else {
+            let way = if path.contains("/mnt/") { "`file_copy`" } else { "`shell`" };
             return ToolOutput::error(format!(
-                "{path} is not inside the workspace ({GUEST_WORKSPACE}). Copy it there with `shell` first."
+                "{path} is not inside the workspace ({GUEST_WORKSPACE}). Copy it there with {way} first."
             ));
         };
         let rel = host.strip_prefix(&workspace).map(|r| r.to_string_lossy().into_owned()).unwrap_or_default();

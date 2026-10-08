@@ -233,6 +233,14 @@ trait Sandbox {
   earlier version kept in `data_dir/workspace` is moved across once at start-up
   (`workspace::migrate`: nothing is overwritten, a clash stays in the old folder).
   The database and the unpacked system stay in Application Support.
+- **Shared folders** (`mounts`): the app keeps the system's permission to each folder the
+  user picked (a bookmark, opened again at start-up) and tells the core `Mount {name, path,
+  writable}`; the core owns the rules. A folder is `/solos/mnt/<name>` (or `solos://mnt/<name>/…`).
+  `mounts::locate` is the one path check: only the workspace and named folders, no `..`, no
+  link that leads out of a folder (resolved on the device), and no write unless the folder is
+  writable. `file_read`/`file_write`/`file_edit` use it; `file_list` and `file_copy` exist only
+  while something is shared; `read_image` and the emulated shell reach the workspace only
+  (`file_copy` moves a file across). The prompt lists the folders only when there are some.
 - Layout inside the guest: `/solos/ws` (the workspace, the default working
   directory for the model's commands; the terminal opens at home), with the
   user's attachments in `/solos/ws/attachments` and skills in

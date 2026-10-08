@@ -450,8 +450,27 @@ impl Engine {
         self.inner.sandbox.workspace_dir()
     }
 
+    /// The device file a `solos://ws/…`, `solos://mnt/…` or guest path
+    /// names, if it is in the workspace or a shared folder.
     pub fn resolve_file(&self, reference: &str) -> Option<std::path::PathBuf> {
-        crate::files::resolve(reference, &self.inner.sandbox.workspace_dir())
+        let at = crate::mounts::locate(reference, &self.inner.sandbox.workspace_dir(), &self.inner.tools.mounts().list()).ok()?;
+        // The workspace's root and a shared folder's are not files to open.
+        let root = match &at.mount {
+            Some(name) => format!("{}/{name}", crate::mounts::GUEST_MOUNTS),
+            None => crate::sandbox::GUEST_WORKSPACE.to_string(),
+        };
+        (at.guest != root).then_some(at.host)
+    }
+
+    /// The folders the user shares with the model, as the app last said.
+    pub fn mounts(&self) -> Vec<Mount> {
+        self.inner.tools.mounts().list()
+    }
+
+    /// Replace the shared folders. The app calls this at start-up with the
+    /// folders it could open again, and whenever the user changes them.
+    pub fn set_mounts(&self, mounts: Vec<Mount>) -> Result<(), CoreError> {
+        self.inner.tools.mounts().set(mounts).map_err(|detail| CoreError::Internal { detail })
     }
 
     // -- settings --------------------------------------------------------------
@@ -1069,7 +1088,7 @@ impl Engine {
             session_id: session_id.clone(),
             model: choice.model.clone(),
             system: if agent {
-                crate::prompt::system_prompt(&self.inner.sandbox.info(), &self.inner.tools, &self.skills(), &self.mcp_servers())
+                crate::prompt::system_prompt(&self.inner.sandbox.info(), &self.inner.tools, &self.skills(), &self.mcp_servers(), &self.mounts())
             } else {
                 crate::prompt::chat_prompt()
             },

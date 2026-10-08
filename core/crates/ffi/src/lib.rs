@@ -202,10 +202,22 @@ impl SolosCore {
             .await
     }
 
-    /// Where a workspace file the model named (`solos://ws/…` or
-    /// `/solos/ws/…`) is on this device. Pure path arithmetic, no I/O.
+    /// Where a workspace or shared-folder file the model named
+    /// (`solos://ws/…`, `/solos/ws/…`, `solos://mnt/…`, `/solos/mnt/…`) is on
+    /// this device. Path arithmetic; a link inside a shared folder is looked at.
     pub fn resolve_file(&self, reference: String) -> Option<String> {
         self.engine.resolve_file(&reference).map(|p| p.to_string_lossy().into_owned())
+    }
+
+    /// The folders the user shares with the model.
+    pub fn mounts(&self) -> Vec<Mount> {
+        self.engine.mounts()
+    }
+
+    /// Replace the shared folders: the app calls it at start-up with the
+    /// folders it could open again, and whenever the user changes them.
+    pub fn set_mounts(&self, mounts: Vec<Mount>) -> Result<(), CoreError> {
+        self.engine.set_mounts(mounts)
     }
 
     pub fn settings(&self) -> Settings {

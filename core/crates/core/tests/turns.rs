@@ -212,6 +212,27 @@ async fn input_queued_during_a_failed_turn_still_runs() {
 }
 
 #[tokio::test]
+async fn shared_folders_reach_the_prompt_and_the_tools_only_while_there_are_some() {
+    let (engine, scripted) = engine(vec![text("a"), text("b")], Some("k")).await;
+    let dir = std::env::temp_dir().join(format!("solos-share-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut rx = engine.subscribe();
+    let s = engine.create_session(None).await.unwrap();
+    engine.set_mounts(vec![Mount { name: "notes".into(), path: dir.to_string_lossy().into_owned(), writable: false }]).unwrap();
+    engine.send(s.id.clone(), "one".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+    engine.set_mounts(vec![]).unwrap();
+    engine.send(s.id.clone(), "two".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+
+    let reqs = scripted.requests.lock().unwrap();
+    let has = |r: &solos_core::providers::ChatRequest, tool: &str| r.tools.iter().any(|t| t.name == tool);
+    assert!(reqs[0].system.contains("/solos/mnt/notes (read-only)") && has(&reqs[0], "file_list") && has(&reqs[0], "file_copy"));
+    assert!(!reqs[1].system.contains("/solos/mnt") && !has(&reqs[1], "file_list") && !has(&reqs[1], "file_copy"));
+    assert!(engine.set_mounts(vec![Mount { name: "a/b".into(), path: "/x".into(), writable: true }]).is_err());
+}
+
+#[tokio::test]
 async fn a_turned_off_endpoint_refuses_a_turn_until_it_is_on_again_and_old_records_read_as_on() {
     let (engine, _) = engine(vec![text("hello")], Some("k")).await;
     let mut settings = engine.settings();

@@ -10,6 +10,7 @@ pub mod engine;
 pub mod files;
 pub mod mcp;
 pub mod mirrors;
+pub mod mounts;
 pub mod prompt;
 pub mod skills;
 pub mod providers;

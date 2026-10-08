@@ -145,6 +145,11 @@ struct SettingsView: View {
                 }
             }
             .foregroundStyle(.primary)
+            NavigationLink { FoldersView() } label: {
+                LabeledContent(
+                    String(localized: "Shared folders"),
+                    value: app.mountStore.entries.isEmpty ? String(localized: "None") : String(app.mountStore.entries.count))
+            }
             if let system = sandbox?.systemBytes {
                 LabeledContent(String(localized: "Linux system"), value: Self.size(system))
             }

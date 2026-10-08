@@ -1559,22 +1559,6 @@
         }
       }
     },
-    "Files can only be put in the workspace (/solos/ws).": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文件只能放进工作区（/solos/ws）。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "檔案只能放進工作區（/solos/ws）。"
-          }
-        }
-      }
-    },
     "Finished": {
       "localizations": {
         "zh-Hans": {
@@ -3371,6 +3355,279 @@
           "stringUnit": {
             "state": "translated",
             "value": "這會刪除該端點、它的模型和 API 金鑰。使用過它的對話會保留訊息，但需要改用其他模型。"
+          }
+        }
+      }
+    },
+    "https://example.com/mcp": {},
+    "Shared folders": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享資料夾"
+          }
+        }
+      }
+    },
+    "Add folder": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入資料夾"
+          }
+        }
+      }
+    },
+    "Changes allowed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许修改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許修改"
+          }
+        }
+      }
+    },
+    "Read-only": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唯讀"
+          }
+        }
+      }
+    },
+    "Not available. Remove it and choose the folder again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不可用。请移除后重新选择该文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用。請移除後重新選擇該資料夾。"
+          }
+        }
+      }
+    },
+    "The model can read a shared folder, and change it only if you allow that. The terminal and shell cannot see these folders; the model copies files between them and the workspace.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型可以读取共享文件夹，只有你允许时才能修改。终端和 shell 看不到这些文件夹，模型会在它们和工作区之间复制文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型可以讀取共享資料夾，只有你允許時才能修改。終端機和 shell 看不到這些資料夾，模型會在它們和工作區之間複製檔案。"
+          }
+        }
+      }
+    },
+    "Use a name without slashes, colons or percent signs, not starting with a dot.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称不能含斜杠、冒号或百分号，也不能以点开头。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱不能含斜線、冒號或百分號，也不能以點開頭。"
+          }
+        }
+      }
+    },
+    "Another shared folder has this name.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有另一个共享文件夹使用这个名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有另一個共享資料夾使用這個名稱。"
+          }
+        }
+      }
+    },
+    "The model sees this folder as /solos/mnt/%@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型会把这个文件夹看作 /solos/mnt/%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型會把這個資料夾看作 /solos/mnt/%@。"
+          }
+        }
+      }
+    },
+    "Allow changes": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许修改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許修改"
+          }
+        }
+      }
+    },
+    "Off: the model can read and copy files out of this folder. On: it can also write, edit and copy files into it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：模型可以读取并复制其中的文件。开启：模型还可以写入、编辑并复制文件进去。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：模型可以讀取並複製其中的檔案。開啟：模型還可以寫入、編輯並複製檔案進去。"
+          }
+        }
+      }
+    },
+    "The system does not let Solos change this folder, so it stays read-only.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统不允许 Solos 修改这个文件夹，因此它保持只读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統不允許 Solos 修改這個資料夾，因此它保持唯讀。"
+          }
+        }
+      }
+    },
+    "Folder": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾"
+          }
+        }
+      }
+    },
+    "Stop sharing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止共享"
+          }
+        }
+      }
+    },
+    "Stop sharing this folder?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止共享这个文件夹？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止共享這個資料夾？"
+          }
+        }
+      }
+    },
+    "Nothing in the folder is deleted.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹里的内容不会被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾裡的內容不會被刪除。"
+          }
+        }
+      }
+    },
+    "Files can only be put in the workspace (/solos/ws) or a shared folder that allows changes.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件只能放进工作区（/solos/ws）或允许修改的共享文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案只能放進工作區（/solos/ws）或允許修改的共享資料夾。"
           }
         }
       }

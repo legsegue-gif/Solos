@@ -9,7 +9,6 @@
 //! elsewhere in the guest are refused with a pointer to `shell`.
 
 use super::{object_schema, Tool, ToolContext, ToolOutput, ToolSpec};
-use crate::sandbox::GUEST_WORKSPACE;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -46,27 +45,26 @@ fn stamp(p: &Path) -> Option<(SystemTime, u64)> {
     Some((m.modified().ok()?, m.len()))
 }
 
-/// The three tools, sharing one ledger.
-pub fn tools() -> Vec<Arc<dyn Tool>> {
+/// The three tools, sharing one ledger and the table of shared folders.
+pub fn tools(mounts: Arc<crate::mounts::Mounts>) -> Vec<Arc<dyn Tool>> {
     let ledger = Arc::new(Ledger::default());
-    vec![Arc::new(FileRead(ledger.clone())), Arc::new(FileWrite(ledger.clone())), Arc::new(FileEdit(ledger))]
+    vec![
+        Arc::new(FileRead(ledger.clone(), mounts.clone())),
+        Arc::new(FileWrite(ledger.clone(), mounts.clone())),
+        Arc::new(FileEdit(ledger, mounts)),
+    ]
 }
 
-/// A path as the model wrote it — `/solos/ws/x`, `solos://ws/x`, or `x`
-/// relative to the workspace — to the file on the device and its guest path.
-fn resolve(ctx: &ToolContext, path: &str) -> Result<(PathBuf, String), String> {
-    let path = path.trim();
-    let guest = if path.starts_with(crate::files::URL_PREFIX) || path.starts_with('/') {
-        path.to_string()
-    } else {
-        format!("{GUEST_WORKSPACE}/{}", path.trim_start_matches("./"))
-    };
-    let workspace = ctx.sandbox.workspace_dir();
-    let host = crate::files::resolve(&guest, &workspace).ok_or_else(|| {
-        format!("{path} is not inside the workspace ({GUEST_WORKSPACE}). These tools only reach the workspace; use `shell` for other paths.")
-    })?;
-    let rel = host.strip_prefix(&workspace).map(|r| r.to_string_lossy().into_owned()).unwrap_or_default();
-    Ok((host, format!("{GUEST_WORKSPACE}/{rel}")))
+/// A path as the model wrote it — `/solos/ws/x`, `solos://ws/x`, `x`
+/// relative to the workspace, or a shared folder's — to the file on the
+/// device.
+fn resolve(ctx: &ToolContext, mounts: &crate::mounts::Mounts, path: &str) -> Result<crate::mounts::Located, String> {
+    crate::mounts::locate(path, &ctx.sandbox.workspace_dir(), &mounts.list())
+}
+
+/// The refusal for a change in a folder the user did not allow changes in.
+fn read_only(at: &crate::mounts::Located) -> String {
+    format!("{} is in a read-only shared folder. The user can allow changes in Settings ▸ Folders.", at.guest)
 }
 
 fn text_arg<'a>(input: &'a Value, key: &str) -> Option<&'a str> {
@@ -81,13 +79,9 @@ fn bool_arg(input: &Value, key: &str) -> bool {
     input.get(key).and_then(|v| v.as_bool().or_else(|| v.as_str().map(|s| s == "true"))).unwrap_or(false)
 }
 
-fn url_of(guest: &str) -> String {
-    guest.replacen(GUEST_WORKSPACE, "solos://ws", 1)
-}
-
 // ---------------------------------------------------------------------------
 
-pub struct FileRead(Arc<Ledger>);
+pub struct FileRead(Arc<Ledger>, Arc<crate::mounts::Mounts>);
 
 #[async_trait]
 impl Tool for FileRead {
@@ -114,10 +108,11 @@ impl Tool for FileRead {
 
     async fn call(&self, ctx: &ToolContext, input: &Value) -> ToolOutput {
         let Some(path) = text_arg(input, "path") else { return ToolOutput::error("`path` is required.") };
-        let (host, guest) = match resolve(ctx, path) {
+        let at = match resolve(ctx, &self.1, path) {
             Ok(x) => x,
             Err(e) => return ToolOutput::error(e),
         };
+        let (host, guest) = (at.host.clone(), at.guest.clone());
         let bytes = match std::fs::read(&host) {
             Ok(b) => b,
             Err(e) => return ToolOutput::error(format!("Cannot read {guest}: {e}")),
@@ -174,7 +169,7 @@ impl Tool for FileRead {
 
 // ---------------------------------------------------------------------------
 
-pub struct FileWrite(Arc<Ledger>);
+pub struct FileWrite(Arc<Ledger>, Arc<crate::mounts::Mounts>);
 
 #[async_trait]
 impl Tool for FileWrite {
@@ -204,10 +199,14 @@ impl Tool for FileWrite {
         let (Some(path), Some(content)) = (text_arg(input, "path"), text_arg(input, "content")) else {
             return ToolOutput::error("`path` and `content` are required.");
         };
-        let (host, guest) = match resolve(ctx, path) {
+        let at = match resolve(ctx, &self.1, path) {
             Ok(x) => x,
             Err(e) => return ToolOutput::error(e),
         };
+        let (host, guest) = (at.host.clone(), at.guest.clone());
+        if !at.writable {
+            return ToolOutput::error(read_only(&at));
+        }
         if let Some(parent) = host.parent().filter(|p| !p.exists()) {
             if !bool_arg(input, "create_dirs") {
                 let dir = Path::new(&guest).parent().map(|p| p.display().to_string()).unwrap_or_default();
@@ -230,13 +229,13 @@ impl Tool for FileWrite {
         self.0.record(&host);
         let size = std::fs::metadata(&host).map(|m| m.len()).unwrap_or(0);
         let verb = if append { "Appended" } else { "Wrote" };
-        ToolOutput::ok(format!("{verb} {} bytes to {guest} (now {size} bytes).\nLink: {}", content.len(), url_of(&guest)))
+        ToolOutput::ok(format!("{verb} {} bytes to {guest} (now {size} bytes).\nLink: {}", content.len(), at.url()))
     }
 }
 
 // ---------------------------------------------------------------------------
 
-pub struct FileEdit(Arc<Ledger>);
+pub struct FileEdit(Arc<Ledger>, Arc<crate::mounts::Mounts>);
 
 #[async_trait]
 impl Tool for FileEdit {
@@ -268,10 +267,14 @@ impl Tool for FileEdit {
         if old.is_empty() {
             return ToolOutput::error("`old_string` is empty; to write a whole file use file_write.");
         }
-        let (host, guest) = match resolve(ctx, path) {
+        let at = match resolve(ctx, &self.1, path) {
             Ok(x) => x,
             Err(e) => return ToolOutput::error(e),
         };
+        let (host, guest) = (at.host.clone(), at.guest.clone());
+        if !at.writable {
+            return ToolOutput::error(read_only(&at));
+        }
         let current = match std::fs::read_to_string(&host) {
             Ok(s) => s,
             Err(e) => return ToolOutput::error(format!("Cannot read {guest}: {e}")),
@@ -295,7 +298,7 @@ impl Tool for FileEdit {
         }
         self.0.record(&host);
         let n = if all { count } else { 1 };
-        ToolOutput::ok(format!("Replaced {n} occurrence{} in {guest}.\nLink: {}", if n == 1 { "" } else { "s" }, url_of(&guest)))
+        ToolOutput::ok(format!("Replaced {n} occurrence{} in {guest}.\nLink: {}", if n == 1 { "" } else { "s" }, at.url()))
     }
 }
 
@@ -314,13 +317,13 @@ mod tests {
     }
 
     fn by_name(name: &str) -> Arc<dyn Tool> {
-        tools().into_iter().find(|t| t.spec().name == name).unwrap()
+        tools(Default::default()).into_iter().find(|t| t.spec().name == name).unwrap()
     }
 
     #[tokio::test]
     async fn write_read_and_edit_a_file_by_any_of_its_names() {
         let (c, ws) = ctx();
-        let t = tools();
+        let t = tools(Default::default());
         let (read, write, edit) = (&t[0], &t[1], &t[2]);
         let w = write.call(&c, &json!({"path": "/solos/ws/a/b.txt", "content": "hello\nworld\n"})).await;
         assert!(w.is_error, "no folder a/ yet: {}", w.text);
@@ -343,12 +346,92 @@ mod tests {
     async fn an_edit_is_refused_when_the_file_changed_after_it_was_read() {
         let (c, ws) = ctx();
         std::fs::write(ws.join("n.txt"), "one\n").unwrap();
-        let t = tools();
+        let t = tools(Default::default());
         t[0].call(&c, &json!({"path": "n.txt"})).await;
         // Something else (the shell, the user) rewrites it.
         std::fs::write(ws.join("n.txt"), "one two\n").unwrap();
         let e = t[2].call(&c, &json!({"path": "n.txt", "old_string": "one", "new_string": "1"})).await;
         assert!(e.is_error && e.text.contains("changed since"), "{}", e.text);
+    }
+
+    use crate::tools::ToolSource;
+
+    /// A shared folder next to the workspace, one table for every tool.
+    fn with_mount(writable: bool) -> (ToolContext, PathBuf, PathBuf, Arc<crate::mounts::Mounts>) {
+        let (c, ws) = ctx();
+        let dir = std::env::temp_dir().join(format!("solos-shared-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let mounts = Arc::new(crate::mounts::Mounts::default());
+        mounts.set(vec![solos_api::Mount { name: "notes".into(), path: dir.to_string_lossy().into_owned(), writable }]).unwrap();
+        (c, ws, dir, mounts)
+    }
+
+    fn named(mounts: &Arc<crate::mounts::Mounts>, name: &str) -> Arc<dyn Tool> {
+        tools(mounts.clone())
+            .into_iter()
+            .chain(crate::mounts::MountTools(mounts.clone()).tools())
+            .find(|t| t.spec().name == name)
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_shared_folder_is_read_listed_and_copied_but_only_written_when_allowed() {
+        let (c, ws, dir, mounts) = with_mount(false);
+        std::fs::write(dir.join("day.md"), "one\ntwo\n").unwrap();
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("sub/a.bin"), [0u8, 1, 2]).unwrap();
+
+        let r = named(&mounts, "file_read").call(&c, &json!({"path": "/solos/mnt/notes/day.md"})).await;
+        assert!(!r.is_error && r.text.contains("one") && r.text.starts_with("/solos/mnt/notes/day.md"), "{}", r.text);
+        let l = named(&mounts, "file_list").call(&c, &json!({"path": "/solos/mnt/notes"})).await;
+        assert!(l.text.contains("sub/") && l.text.contains("day.md  "), "{}", l.text);
+
+        // Read-only: no write, no edit, no copy into it.
+        for (tool, args) in [
+            ("file_write", json!({"path": "/solos/mnt/notes/new.md", "content": "x"})),
+            ("file_edit", json!({"path": "/solos/mnt/notes/day.md", "old_string": "one", "new_string": "1"})),
+            ("file_copy", json!({"from": "/solos/mnt/notes/day.md", "to": "/solos/mnt/notes/copy.md"})),
+        ] {
+            let r = named(&mounts, tool).call(&c, &args).await;
+            assert!(r.is_error && r.text.contains("read-only"), "{tool}: {}", r.text);
+        }
+        assert!(!dir.join("new.md").exists() && !dir.join("copy.md").exists());
+        assert_eq!(std::fs::read_to_string(dir.join("day.md")).unwrap(), "one\ntwo\n");
+
+        // Copying out works, binary included, whole folders too, and does not overwrite by itself.
+        let r = named(&mounts, "file_copy").call(&c, &json!({"from": "/solos/mnt/notes/sub", "to": "/solos/ws/got"})).await;
+        assert!(!r.is_error && r.text.contains("Copied 1 file"), "{}", r.text);
+        assert_eq!(std::fs::read(ws.join("got/a.bin")).unwrap(), [0u8, 1, 2]);
+        let one = json!({"from": "/solos/mnt/notes/day.md", "to": "/solos/ws/day.md"});
+        assert!(!named(&mounts, "file_copy").call(&c, &one).await.is_error);
+        let again = named(&mounts, "file_copy").call(&c, &one).await;
+        assert!(again.is_error && again.text.contains("already exists"), "{}", again.text);
+        let into = named(&mounts, "file_copy").call(&c, &json!({"from": "/solos/mnt/notes/day.md", "to": "/solos/ws/got"})).await;
+        assert!(!into.is_error && ws.join("got/day.md").exists(), "an existing folder gets the copy inside: {}", into.text);
+
+        // Allowed: the same calls now change the folder.
+        let allowed: Vec<_> = mounts.list().into_iter().map(|m| solos_api::Mount { writable: true, ..m }).collect();
+        mounts.set(allowed).unwrap();
+        let w = named(&mounts, "file_write").call(&c, &json!({"path": "/solos/mnt/notes/new.md", "content": "x"})).await;
+        assert!(!w.is_error && w.text.contains("solos://mnt/notes/new.md"), "{}", w.text);
+        let e = named(&mounts, "file_read").call(&c, &json!({"path": "/solos/mnt/notes/day.md"})).await;
+        assert!(!e.is_error);
+        let e = named(&mounts, "file_edit").call(&c, &json!({"path": "/solos/mnt/notes/day.md", "old_string": "one", "new_string": "1"})).await;
+        assert!(!e.is_error, "{}", e.text);
+        assert_eq!(std::fs::read_to_string(dir.join("day.md")).unwrap(), "1\ntwo\n");
+        let back = named(&mounts, "file_copy").call(&c, &json!({"from": "/solos/ws/got/a.bin", "to": "/solos/mnt/notes/sub"})).await;
+        assert!(back.is_error, "a file onto an existing file needs overwrite: {}", back.text);
+        let back = named(&mounts, "file_copy").call(&c, &json!({"from": "/solos/ws/got/a.bin", "to": "/solos/mnt/notes/sub", "overwrite": true})).await;
+        assert!(!back.is_error, "{}", back.text);
+    }
+
+    #[tokio::test]
+    async fn the_list_and_copy_tools_exist_only_while_something_is_shared() {
+        let (_, _, _, mounts) = with_mount(true);
+        assert_eq!(crate::mounts::MountTools(mounts.clone()).tools().len(), 2);
+        mounts.set(vec![]).unwrap();
+        assert!(crate::mounts::MountTools(mounts).tools().is_empty());
     }
 
     #[tokio::test]
