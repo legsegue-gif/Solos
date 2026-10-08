@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy Policy · Solos</title>
+<meta name="description" content="How Solos handles your data.">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+<nav><a href="/">Solos</a><a href="/privacy/">Privacy Policy</a><a href="/terms/">Terms of Use</a><a href="/support/">Support</a><a class="lang" hreflang="zh-Hans" href="/zh-hans/privacy/">简体中文</a></nav>
+
+<h1>Privacy Policy</h1>
+<p class="meta">Solos for iPhone and iPad · Last updated 2026-10-09</p>
+
+<p class="lead">Solos has no accounts, no servers of ours, no analytics, no ads and no tracking. What you write and what the assistant does stay on your device, except what you choose to send to the AI services <em>you</em> set up.</p>
+
+<h2>1. Who we are</h2>
+<p>Solos is made by the Solos project, an open-source project (<a href="https://github.com/legsegue-gif/Solos">source code</a>) ("we"). Questions about this policy: open an issue at <a href="https://github.com/legsegue-gif/Solos/issues">https://github.com/legsegue-gif/Solos/issues</a>.</p>
+
+<h2>2. What we collect</h2>
+<p><strong>Nothing.</strong> We do not receive your messages, files, contacts, location, health data or any other personal data. Solos contains no analytics, crash-reporting, advertising or tracking code, and does not use the advertising identifier.</p>
+
+<h2>3. What stays on your device</h2>
+<ul>
+<li><strong>Conversations and settings</strong> are stored in a database inside the app.</li>
+<li><strong>API keys</strong> for the services you add are stored in the iOS Keychain. Deleting an endpoint in Settings removes its key.</li>
+<li><strong>Workspace files</strong> (what you attach and what the assistant creates) live in the app's Documents folder, which the Files app can show. The Linux environment Solos runs and any program you install in it also live on your device.</li>
+<li><strong>Browser cookies and site data</strong> from the built-in browser stay on your device.</li>
+<li><strong>Folders you share</strong>: Solos keeps the system's permission to open them again. It does not copy them anywhere.</li>
+</ul>
+<p>If you back up your device (iCloud or a computer), your device settings decide whether this data is part of the backup.</p>
+
+<h2>4. What leaves your device, and where it goes</h2>
+<p>Solos sends data only in the cases below, and only when you use the feature.</p>
+<table>
+<tr><th>When</th><th>What is sent</th><th>To whom</th></tr>
+<tr><td>You send a message</td><td>The conversation: your messages, files and images you attach, and the results of anything the assistant did for you (command output, file contents, and data from the device features you allowed, see section 5).</td><td>The AI service (&ldquo;endpoint&rdquo;) you configured in Settings, with your own API key. It may be a company's service, a relay, or a server on your own network. <strong>Its privacy policy applies to that data</strong>, not ours.</td></tr>
+<tr><td>You open the model list</td><td>A request for the list of models, with your API key.</td><td>The same endpoint.</td></tr>
+<tr><td>You ask for weather, places or routes</td><td>Coordinates or a place query.</td><td>Apple (WeatherKit, Maps, location lookup), under Apple's privacy policy.</td></tr>
+<tr><td>You or the assistant open a web page or download a file</td><td>Ordinary web requests and the cookies the site set.</td><td>The website.</td></tr>
+<tr><td>You add a skill from GitHub</td><td>A request for the skill's files.</td><td>GitHub.</td></tr>
+<tr><td>You add an MCP server, or the assistant calls one</td><td>The tool call and its arguments.</td><td>The server you added.</td></tr>
+<tr><td>You install packages in the Linux environment</td><td>Package requests.</td><td>The package mirror chosen in Settings (for example the official Alpine, PyPI or npm servers, or a mirror you pick).</td></tr>
+<tr><td>You run a program that uses the network</td><td>Whatever that program sends.</td><td>Whoever it connects to.</td></tr>
+</table>
+<p><strong>The assistant can read what you let it read.</strong> If you ask it to look at your calendar, for example, the events it reads become part of the conversation and are sent to your endpoint like any other message. Only share what you are comfortable sending to that service.</p>
+
+<h2>5. Permissions</h2>
+<p>Each permission is optional. iOS asks the first time a feature needs it, and you can change your mind in iOS Settings. Solos uses a permission only when you ask the assistant to do something that needs it.</p>
+<table>
+<tr><th>Permission</th><th>Used for</th></tr>
+<tr><td>Calendar, Reminders</td><td>Reading and adding events and reminders you ask for.</td></tr>
+<tr><td>Contacts</td><td>Looking up a contact by name when you ask.</td></tr>
+<tr><td>Location (while using)</td><td>Weather, places and routes near you when you ask.</td></tr>
+<tr><td>Photos</td><td>Listing photos and copying the ones you choose into the workspace. Saving a picture to your photos only when you ask.</td></tr>
+<tr><td>Media &amp; Apple Music</td><td>Searching and playing music when you ask.</td></tr>
+<tr><td>Health (read and write)</td><td>Reading data such as steps, heart rate, sleep and weight, or recording weight or water, only when you ask. Health data is never used for advertising or sold. If you ask the assistant to read it, the result becomes part of the conversation and is sent to your endpoint (section 4).</td></tr>
+<tr><td>Alarms</td><td>Setting alarms and timers when you ask.</td></tr>
+<tr><td>Notifications</td><td>Telling you when a long reply has finished while the app is in the background. Notifications are created on your device.</td></tr>
+<tr><td>Local network</td><td>Reaching model services on your own network.</td></tr>
+</table>
+
+<h2>6. Sharing and selling</h2>
+<p>We do not sell, rent or share personal data, because we do not have it. Data sent to an endpoint, Apple or any other service in section 4 is sent by the app at your request and is governed by that service's own terms and privacy policy.</p>
+
+<h2>7. Keeping and deleting data</h2>
+<p>You control everything on your device: delete a chat in the app, delete files in the workspace or the Files app, remove an endpoint (this also removes its key), or delete the app to remove its data. Data you sent to an endpoint is kept by that service according to its own policy; ask them to delete it.</p>
+
+<h2>8. Children</h2>
+<p>Solos is not directed at children under 13 and we do not knowingly collect any data from anyone.</p>
+
+<h2>9. Changes</h2>
+<p>If this policy changes, we will update this page and the date at the top.</p>
+
+<h2>10. Contact</h2>
+<p>Open an issue at <a href="https://github.com/legsegue-gif/Solos/issues">https://github.com/legsegue-gif/Solos/issues</a>.</p>
+
+<footer>Solos is free software under the GNU GPL-3.0 with an additional permission for App Store distribution. <a href="https://github.com/legsegue-gif/Solos">Source code</a></footer>
+</main>
+</body>
+</html>
