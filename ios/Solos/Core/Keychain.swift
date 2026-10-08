@@ -31,9 +31,14 @@ enum Keychain {
     }
 }
 
-/// The core asks for keys through this, when a request needs one.
+/// The core asks for keys through this, when a request needs one, and
+/// keeps an MCP server's header and environment values through it.
 final class KeychainSecrets: SecretStore {
     func secret(reference: String) -> String? {
         Keychain.read(reference)
+    }
+
+    func store(reference: String, value: String) -> Bool {
+        Keychain.write(reference, value)
     }
 }

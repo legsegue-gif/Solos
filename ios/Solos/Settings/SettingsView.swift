@@ -260,6 +260,8 @@ struct EndpointEditor: View {
                     TextField(String(localized: "Address (empty = \(endpoint.protocol.officialHost))"), text: $endpoint.baseUrl)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     SecureField(String(localized: "API key"), text: $key)
+                        // Not a password: no offer to save it in Passwords.
+                        .textContentType(.oneTimeCode)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                 } footer: {
                     Text("\(endpoint.protocol.addressHelp) The key is kept in the Keychain.")

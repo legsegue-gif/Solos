@@ -19,9 +19,17 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::{broadcast, Mutex};
 use tokio_util::sync::CancellationToken;
 
-/// Looks up API keys where the client keeps them.
+/// Looks up API keys where the client keeps them, and keeps those the core
+/// is given (an MCP server's headers and environment).
 pub trait SecretResolver: Send + Sync {
     fn secret(&self, reference: &str) -> Option<String>;
+    /// Keep `value` under `reference`; an empty value deletes it. `false`
+    /// when this client cannot keep secrets, and the value is stored with
+    /// the rest of the settings instead.
+    fn store(&self, reference: &str, value: &str) -> bool {
+        let _ = (reference, value);
+        false
+    }
 }
 
 /// Builds a provider for an endpoint. Replaceable so tests can script one.
@@ -158,7 +166,7 @@ impl Engine {
         }
         // MCP servers' tools join the fixed ones, and `mcp_add` with them,
         // before anything takes a copy of the registry.
-        let mcp = crate::mcp::Mcp::open(store.clone(), cfg.sandbox.clone()).await?;
+        let mcp = crate::mcp::Mcp::open(store.clone(), cfg.sandbox.clone(), cfg.secrets.clone()).await?;
         let mut cfg = cfg;
         cfg.tools.add_source(Arc::new(mcp.clone()));
         cfg.tools.add(Arc::new(crate::mcp::McpAdd(mcp.clone())));
@@ -315,11 +323,49 @@ impl Engine {
     /// it on: asking for it is asking to use it.
     pub async fn install_skill(&self, source: String) -> Result<Skill, CoreError> {
         let done = crate::skills::install(&source, &self.inner.sandbox.workspace_dir()).await?;
-        self.set_skill_enabled(done.folder.clone(), true).await?;
-        self.skills()
+        self.installed(done.folder).await
+    }
+
+    /// Install a skill from its `SKILL.md`, pasted.
+    pub async fn install_skill_text(&self, text: String) -> Result<Skill, CoreError> {
+        let ws = self.inner.sandbox.workspace_dir();
+        let done = tokio::task::spawn_blocking(move || crate::skills::install_text(&text, &ws))
+            .await
+            .map_err(|e| CoreError::Internal { detail: e.to_string() })??;
+        self.installed(done.folder).await
+    }
+
+    /// Install a skill from a file on the device: a `.zip` or `.skill`, a
+    /// `SKILL.md`, or a folder holding one.
+    pub async fn install_skill_file(&self, path: String) -> Result<Skill, CoreError> {
+        let ws = self.inner.sandbox.workspace_dir();
+        let done = tokio::task::spawn_blocking(move || crate::skills::install_file(std::path::Path::new(&path), &ws))
+            .await
+            .map_err(|e| CoreError::Internal { detail: e.to_string() })??;
+        self.installed(done.folder).await
+    }
+
+    /// Install a skill again from the GitHub link it came from.
+    pub async fn update_skill(&self, folder: String) -> Result<Skill, CoreError> {
+        let source = self
+            .skills()
             .into_iter()
-            .find(|s| s.folder == done.folder)
-            .ok_or(CoreError::NoSuchSkill { folder: done.folder })
+            .find(|s| s.folder == folder)
+            .ok_or_else(|| CoreError::NoSuchSkill { folder: folder.clone() })?
+            .source
+            .ok_or_else(|| CoreError::NotASkillSource { source_text: folder.clone() })?;
+        self.install_skill(source).await
+    }
+
+    /// A skill's files, relative to its folder.
+    pub fn skill_files(&self, folder: String) -> Result<Vec<String>, CoreError> {
+        crate::skills::files(&self.inner.sandbox.workspace_dir(), &folder)
+    }
+
+    /// A skill just put in place, turned on: asking for it is asking to use it.
+    async fn installed(&self, folder: String) -> Result<Skill, CoreError> {
+        self.set_skill_enabled(folder.clone(), true).await?;
+        self.skills().into_iter().find(|s| s.folder == folder).ok_or(CoreError::NoSuchSkill { folder })
     }
 
     pub async fn remove_skill(&self, folder: String) -> Result<(), CoreError> {
@@ -360,6 +406,18 @@ impl Engine {
     pub async fn add_mcp_servers(&self, json: String) -> Result<Vec<McpServer>, CoreError> {
         let servers = crate::mcp::parse_config(&json)?;
         self.inner.mcp.add(servers, true).await
+    }
+
+    /// Add one server (or replace the one of its name), as a form gives it,
+    /// connecting to it; one that cannot be reached is kept with its error.
+    pub async fn add_mcp_server(&self, server: McpServer) -> Result<McpServer, CoreError> {
+        let name = server.name.trim().to_string();
+        self.inner.mcp.update(&name, server).await
+    }
+
+    /// Replace the server `name` with `server`, which may have a new name.
+    pub async fn update_mcp_server(&self, name: String, server: McpServer) -> Result<McpServer, CoreError> {
+        self.inner.mcp.update(&name, server).await
     }
 
     pub async fn remove_mcp_server(&self, name: String) -> Result<(), CoreError> {

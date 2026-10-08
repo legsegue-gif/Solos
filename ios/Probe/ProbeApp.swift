@@ -24,6 +24,8 @@ struct ProbeApp: App {
 
 private final class EnvSecret: SecretStore {
     func secret(reference: String) -> String? { ProcessInfo.processInfo.environment["SOLOS_PROBE_KEY"] }
+    /// The probe keeps nothing between runs; MCP values stay in its settings.
+    func store(reference: String, value: String) -> Bool { false }
 }
 
 private final class Collector: EventSink, @unchecked Sendable {

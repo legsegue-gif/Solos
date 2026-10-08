@@ -19,14 +19,14 @@ impl Tool for SkillInstall {
         ToolSpec {
             name: "skill_install".into(),
             description: format!(
-                "Install a skill from GitHub into {}/, or update it if it is there. Give the link the user gave: a repository, or the folder in one that holds the SKILL.md. Returns where the skill went and its SKILL.md; then do what it says it needs (packages to install, for example).",
+                "Install a skill into {}/, or update it if it is there. Give the link the user gave (a GitHub repository, or the folder in one that holds the SKILL.md), or a workspace path: a .zip or .skill file, a SKILL.md, or a folder with one. Returns where the skill went and its SKILL.md; then do what it says it needs (packages to install, for example).",
                 skills::guest_dir()
             ),
             schema: object_schema(
                 json!({
                     "source": {
                         "type": "string",
-                        "description": "https://github.com/<owner>/<repo>, or …/tree/<branch>/<folder> for one skill among several."
+                        "description": "https://github.com/<owner>/<repo>, …/tree/<branch>/<folder> for one skill among several, or a path under /solos/ws."
                     }
                 }),
                 &["source"],
@@ -40,9 +40,23 @@ impl Tool for SkillInstall {
             return ToolOutput::error("`source` is required: a GitHub link.");
         };
         let workspace = ctx.sandbox.workspace_dir();
-        let done = tokio::select! {
-            r = skills::install(source, &workspace) => r,
-            _ = ctx.cancel.cancelled() => return ToolOutput::error("Stopped."),
+        // A path that exists in the workspace wins over the `owner/repo`
+        // shorthand it may also read as.
+        let local = (!source.contains("github.com"))
+            .then(|| crate::files::resolve_argument(source.trim(), &workspace))
+            .flatten()
+            .filter(|p| p.exists());
+        let done = match local {
+            Some(path) => {
+                let ws = workspace.clone();
+                tokio::task::spawn_blocking(move || skills::install_file(&path, &ws))
+                    .await
+                    .unwrap_or_else(|e| Err(CoreError::Internal { detail: e.to_string() }))
+            }
+            None => tokio::select! {
+                r = skills::install(source, &workspace) => r,
+                _ = ctx.cancel.cancelled() => return ToolOutput::error("Stopped."),
+            },
         };
         match done {
             Ok(done) => ToolOutput::ok(report(&done)),
@@ -77,9 +91,9 @@ fn files_line(files: &[String]) -> String {
 
 fn failure(e: &CoreError) -> String {
     match e {
-        CoreError::NotASkillSource { source_text } => {
-            format!("Not a GitHub link: {source_text}. Give https://github.com/<owner>/<repo>, or a link to the folder that holds the SKILL.md.")
-        }
+        CoreError::NotASkillSource { source_text } => format!(
+            "Not a GitHub link or a file in the workspace: {source_text}. Give https://github.com/<owner>/<repo>, a link to the folder that holds the SKILL.md, or a path under /solos/ws."
+        ),
         CoreError::NoSingleSkill { source_text, candidates } if candidates.is_empty() => {
             format!("There is no SKILL.md in {source_text}, so it is not a skill.")
         }

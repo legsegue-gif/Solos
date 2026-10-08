@@ -142,6 +142,18 @@ impl Sandbox for IshSandbox {
             tracing::error!("sandbox boot failed: {e}");
         }
         *state = Some(result.clone());
+        drop(state);
+        if result.is_ok() {
+            // npm writes a download to `_cacache/tmp/<name from its content>`
+            // and opens it only if it is not there: a file left by a run that
+            // was killed (by iOS, or before iSH stopped ending Node at three
+            // minutes) failed every later install of that package with
+            // EEXIST. Nothing is being written at boot, so it is all leftovers.
+            let spec = ExecSpec { script: "rm -rf /root/.npm/_cacache/tmp".into(), cwd: "/root".into(), env: vec![], timeout: std::time::Duration::from_secs(60) };
+            if let Err(e) = self.exec(spec, Arc::new(|_: &str| {}), CancellationToken::new()).await {
+                tracing::warn!("npm's temporary files were not cleared: {e}");
+            }
+        }
         result.map_err(SandboxError::Unavailable)
     }
 

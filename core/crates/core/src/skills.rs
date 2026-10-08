@@ -48,7 +48,10 @@ pub fn list(workspace: &Path, disabled: &BTreeSet<String>) -> Vec<Skill> {
                 return None;
             }
             let text = read_head(&e.path().join(FILE))?;
-            Some(describe(folder, &text, disabled))
+            let mut skill = describe(folder, &text, disabled);
+            skill.source = source_of(&e.path());
+            skill.file_count = count_files(&e.path());
+            Some(skill)
         })
         .collect();
     out.sort_by(|a, b| a.folder.cmp(&b.folder));
@@ -73,6 +76,8 @@ fn describe(folder: String, skill_md: &str, disabled: &BTreeSet<String>) -> Skil
         description: fm.get("description").cloned().unwrap_or_default(),
         name,
         folder,
+        source: None,
+        file_count: 0,
     }
 }
 
@@ -242,6 +247,10 @@ pub struct Installed {
     pub instructions: String,
 }
 
+/// Where a skill installed from a GitHub link keeps that link, in its own
+/// folder, so it can be updated from it.
+pub const SOURCE_FILE: &str = ".solos-source";
+
 /// Download a skill from GitHub and put it in the skills folder, replacing
 /// any earlier copy of the same folder.
 pub async fn install(source: &str, workspace: &Path) -> Result<Installed, CoreError> {
@@ -250,7 +259,8 @@ pub async fn install(source: &str, workspace: &Path) -> Result<Installed, CoreEr
         .await
         .map_err(|_| CoreError::Network { detail: format!("no complete download in {} s", DOWNLOAD_TIMEOUT.as_secs()) })??;
     let workspace = workspace.to_path_buf();
-    tokio::task::spawn_blocking(move || unpack(&archive, &src, &workspace))
+    let link = source.trim().to_string();
+    tokio::task::spawn_blocking(move || unpack(&archive, &src, &link, &workspace))
         .await
         .map_err(|e| CoreError::Internal { detail: e.to_string() })?
 }
@@ -279,37 +289,135 @@ async fn download(url: &str) -> Result<Vec<u8>, CoreError> {
     Ok(body)
 }
 
-/// One file of the archive, by its path within the repository.
-struct Entry {
-    index: usize,
-    path: PathBuf,
+/// A GitHub archive: its entries all sit under one top folder.
+pub fn unpack(archive: &[u8], src: &GitHubSource, link: &str, workspace: &Path) -> Result<Installed, CoreError> {
+    let files = read_zip(archive, true)?;
+    place(files, Path::new(&src.path), &|p| src.folder_link(p), &src.repo, Some(link), workspace)
 }
 
-/// Picks the skill's folder out of a GitHub archive (whose entries all sit
-/// under one top folder) and writes it to the skills folder.
-pub fn unpack(archive: &[u8], src: &GitHubSource, workspace: &Path) -> Result<Installed, CoreError> {
+/// A skill from a file: a `.zip` (a `.skill` is one) holding its folder, a
+/// `SKILL.md` alone, or a folder (what the model wrote or downloaded).
+pub fn install_file(path: &Path, workspace: &Path) -> Result<Installed, CoreError> {
+    let io = |e: std::io::Error| CoreError::Storage { detail: format!("{}: {e}", path.display()) };
+    let stem = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if path.is_dir() {
+        if path.starts_with(host_dir(workspace)) {
+            return Err(CoreError::NotASkillSource { source_text: "a folder already in the skills folder".into() });
+        }
+        return place(read_folder(path)?, Path::new(""), &|p| p.to_string(), &stem, None, workspace);
+    }
+    let size = std::fs::metadata(path).map_err(io)?.len();
+    if size > MAX_DOWNLOAD {
+        return Err(CoreError::Protocol { detail: format!("the file is larger than {} MB", MAX_DOWNLOAD >> 20) });
+    }
+    let bytes = std::fs::read(path).map_err(io)?;
+    if bytes.starts_with(b"PK\x03\x04") {
+        return place(read_zip(&bytes, false)?, Path::new(""), &|p| p.to_string(), &stem, None, workspace);
+    }
+    let fallback = if stem.eq_ignore_ascii_case("skill") { "pasted-skill" } else { stem.as_str() };
+    place(text_entries(&String::from_utf8_lossy(&bytes))?, Path::new(""), &|p| p.to_string(), fallback, None, workspace)
+}
+
+/// A skill from its `SKILL.md`, pasted.
+pub fn install_text(text: &str, workspace: &Path) -> Result<Installed, CoreError> {
+    place(text_entries(text)?, Path::new(""), &|p| p.to_string(), "pasted-skill", None, workspace)
+}
+
+fn text_entries(text: &str) -> Result<Vec<Entry>, CoreError> {
+    let text = text.trim_start_matches('\u{feff}');
+    if text.trim().is_empty() {
+        return Err(CoreError::NoSingleSkill { source_text: "the text".into(), candidates: vec![] });
+    }
+    Ok(vec![Entry { path: PathBuf::from(FILE), data: text.as_bytes().to_vec(), executable: false }])
+}
+
+/// One file of a skill being installed, by its path within the source.
+struct Entry {
+    path: PathBuf,
+    data: Vec<u8>,
+    executable: bool,
+}
+
+fn too_big(files: usize, bytes: u64) -> Option<CoreError> {
+    if files > MAX_FILES {
+        return Some(CoreError::Protocol { detail: format!("it has more than {MAX_FILES} files") });
+    }
+    (bytes > MAX_UNPACKED).then(|| CoreError::Protocol { detail: format!("it unpacks to more than {} MB", MAX_UNPACKED >> 20) })
+}
+
+/// A zip's files, without directories or links, each path inside it; with
+/// `strip_top`, the archive's own top folder (`<repo>-<ref>/`) dropped.
+fn read_zip(archive: &[u8], strip_top: bool) -> Result<Vec<Entry>, CoreError> {
     let bad = |e: zip::result::ZipError| CoreError::Protocol { detail: format!("the archive could not be read: {e}") };
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(archive)).map_err(bad)?;
-    let mut files = Vec::new();
+    let (mut files, mut total) = (Vec::new(), 0u64);
     for index in 0..zip.len() {
-        let f = zip.by_index(index).map_err(bad)?;
+        let mut f = zip.by_index(index).map_err(bad)?;
         if f.is_dir() || f.is_symlink() {
             continue;
         }
         let Some(name) = f.enclosed_name() else { continue };
-        // Drop the archive's own top folder (`<repo>-<ref>/`).
-        let path: PathBuf = name.components().skip(1).collect();
-        if path.as_os_str().is_empty() || !path.components().all(|c| matches!(c, Component::Normal(_))) {
+        let path: PathBuf = name.components().skip(usize::from(strip_top)).collect();
+        // macOS puts resource forks beside the files it zips.
+        if path.as_os_str().is_empty() || path.starts_with("__MACOSX") || !path.components().all(|c| matches!(c, Component::Normal(_))) {
             continue;
         }
-        files.push(Entry { index, path });
+        total += f.size();
+        if let Some(e) = too_big(files.len() + 1, total) {
+            return Err(e);
+        }
+        let executable = f.unix_mode().is_some_and(|m| m & 0o111 != 0);
+        let mut data = Vec::with_capacity(f.size() as usize);
+        f.read_to_end(&mut data).map_err(|e| CoreError::Protocol { detail: format!("the archive could not be read: {e}") })?;
+        files.push(Entry { path, data, executable });
     }
+    Ok(files)
+}
 
-    let wanted = Path::new(&src.path);
+fn read_folder(dir: &Path) -> Result<Vec<Entry>, CoreError> {
+    let io = |e: std::io::Error| CoreError::Storage { detail: e.to_string() };
+    let (mut files, mut total, mut pending) = (Vec::new(), 0u64, vec![dir.to_path_buf()]);
+    while let Some(d) = pending.pop() {
+        for e in std::fs::read_dir(&d).map_err(io)?.flatten() {
+            let kind = e.file_type().map_err(io)?;
+            if kind.is_dir() {
+                pending.push(e.path());
+            } else if kind.is_file() {
+                let data = std::fs::read(e.path()).map_err(io)?;
+                total += data.len() as u64;
+                if let Some(err) = too_big(files.len() + 1, total) {
+                    return Err(err);
+                }
+                #[cfg(unix)]
+                let executable = std::os::unix::fs::PermissionsExt::mode(&e.metadata().map_err(io)?.permissions()) & 0o111 != 0;
+                #[cfg(not(unix))]
+                let executable = false;
+                let path = e.path().strip_prefix(dir).expect("walked from dir").to_path_buf();
+                files.push(Entry { path, data, executable });
+            }
+        }
+    }
+    Ok(files)
+}
+
+/// Picks the skill's folder among `files` (the one at `wanted`, or the only
+/// one with a `SKILL.md`), and writes it to the skills folder, replacing an
+/// earlier copy. `link` names a candidate folder for the user; `fallback`
+/// names the skill when its `SKILL.md` gives no usable name; `source` is the
+/// GitHub link it can be updated from.
+fn place(
+    files: Vec<Entry>,
+    wanted: &Path,
+    link: &dyn Fn(&str) -> String,
+    fallback: &str,
+    source: Option<&str>,
+    workspace: &Path,
+) -> Result<Installed, CoreError> {
     let hidden = |p: &Path| p.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
+    let is_skill_md = |p: &Path| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case(FILE));
     let mut candidates: Vec<PathBuf> = files
         .iter()
-        .filter(|e| e.path.starts_with(wanted) && e.path.file_name().is_some_and(|n| n.eq_ignore_ascii_case(FILE)))
+        .filter(|e| e.path.starts_with(wanted) && is_skill_md(&e.path))
         .filter_map(|e| e.path.parent().map(Path::to_path_buf))
         .filter(|dir| !hidden(dir))
         .collect();
@@ -320,60 +428,50 @@ pub fn unpack(archive: &[u8], src: &GitHubSource, workspace: &Path) -> Result<In
         candidates.remove(0)
     } else {
         return Err(CoreError::NoSingleSkill {
-            source_text: src.folder_link(&src.path),
-            candidates: candidates.iter().map(|c| src.folder_link(&c.to_string_lossy())).collect(),
+            source_text: link(&wanted.to_string_lossy()),
+            candidates: candidates.iter().map(|c| link(&c.to_string_lossy())).collect(),
         });
     };
 
-    let chosen: Vec<&Entry> = files.iter().filter(|e| e.path.starts_with(&dir)).collect();
-    if chosen.len() > MAX_FILES {
-        return Err(CoreError::Protocol { detail: format!("the skill has {} files; at most {MAX_FILES} are taken", chosen.len()) });
-    }
-    let mut total = 0u64;
-    for e in &chosen {
-        total += zip.by_index(e.index).map_err(bad)?.size();
-    }
-    if total > MAX_UNPACKED {
-        return Err(CoreError::Protocol { detail: format!("the skill unpacks to {} MB; at most {} MB are taken", total >> 20, MAX_UNPACKED >> 20) });
-    }
-
-    let skill_md = chosen
+    let chosen: Vec<&Entry> = files.iter().filter(|e| e.path.starts_with(&dir) && e.path != Path::new(SOURCE_FILE)).collect();
+    let instructions = chosen
         .iter()
-        .find(|e| e.path.parent() == Some(dir.as_path()) && e.path.file_name().is_some_and(|n| n.eq_ignore_ascii_case(FILE)))
-        .map(|e| e.index)
+        .find(|e| e.path.parent() == Some(dir.as_path()) && is_skill_md(&e.path))
+        .map(|e| String::from_utf8_lossy(&e.data).into_owned())
         .ok_or_else(|| CoreError::Internal { detail: "the chosen folder lost its SKILL.md".into() })?;
-    let mut instructions = String::new();
-    zip.by_index(skill_md).map_err(bad)?.read_to_string(&mut instructions).map_err(|e| CoreError::Protocol { detail: e.to_string() })?;
-    let source_name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| src.repo.clone());
-    let folder = front_matter(&instructions)
-        .get("name")
-        .and_then(|n| folder_name(n))
-        .or_else(|| folder_name(&source_name))
-        .unwrap_or_else(|| "skill".into());
+    let own_name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| fallback.to_string());
+    let root = host_dir(workspace);
+    let folder = match front_matter(&instructions).get("name").and_then(|n| folder_name(n)) {
+        Some(named) => named,
+        // Without a name of its own, a skill does not replace another one
+        // that also had none.
+        None => {
+            let base = folder_name(&own_name).or_else(|| folder_name(fallback)).unwrap_or_else(|| "skill".into());
+            (1..).map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") }).find(|f| !root.join(f).exists()).expect("some name is free")
+        }
+    };
 
     let io = |e: std::io::Error| CoreError::Storage { detail: e.to_string() };
-    let root = host_dir(workspace);
     std::fs::create_dir_all(&root).map_err(io)?;
     let staging = root.join(format!(".installing-{}", uuid::Uuid::new_v4()));
     let written = (|| -> Result<Vec<String>, CoreError> {
         let mut names = Vec::new();
         for e in &chosen {
             let rel = e.path.strip_prefix(&dir).expect("filtered by prefix");
-            // `SKILL.md` keeps its usual spelling whatever the archive had.
+            // `SKILL.md` keeps its usual spelling whatever the source had.
             let rel = if rel.as_os_str().eq_ignore_ascii_case(FILE) { Path::new(FILE) } else { rel };
             let target = staging.join(rel);
             std::fs::create_dir_all(target.parent().expect("inside staging")).map_err(io)?;
-            let mut f = zip.by_index(e.index).map_err(bad)?;
-            let executable = f.unix_mode().is_some_and(|m| m & 0o111 != 0);
-            let mut out = std::fs::File::create(&target).map_err(io)?;
-            std::io::copy(&mut f, &mut out).map_err(io)?;
+            std::fs::write(&target, &e.data).map_err(io)?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&target, std::fs::Permissions::from_mode(if executable { 0o755 } else { 0o644 })).map_err(io)?;
+                std::fs::set_permissions(&target, std::fs::Permissions::from_mode(if e.executable { 0o755 } else { 0o644 })).map_err(io)?;
             }
-            let _ = executable;
             names.push(rel.to_string_lossy().into_owned());
+        }
+        if let Some(source) = source {
+            std::fs::write(staging.join(SOURCE_FILE), source).map_err(io)?;
         }
         Ok(names)
     })();
@@ -394,6 +492,42 @@ pub fn unpack(archive: &[u8], src: &GitHubSource, workspace: &Path) -> Result<In
     Ok(Installed { folder, files: names, replaced, instructions })
 }
 
+/// A skill's files, relative to its folder, sorted; the folder's record of
+/// where it came from is not one of them.
+pub fn files(workspace: &Path, folder: &str) -> Result<Vec<String>, CoreError> {
+    let dir = host_dir(workspace).join(checked_folder(folder)?);
+    if !dir.join(FILE).is_file() {
+        return Err(CoreError::NoSuchSkill { folder: folder.to_string() });
+    }
+    let mut out: Vec<String> = read_folder(&dir)?
+        .into_iter()
+        .map(|e| e.path.to_string_lossy().into_owned())
+        .filter(|p| p != SOURCE_FILE)
+        .collect();
+    out.sort();
+    Ok(out)
+}
+
+/// The GitHub link a skill was installed from, if it was.
+fn source_of(dir: &Path) -> Option<String> {
+    std::fs::read_to_string(dir.join(SOURCE_FILE)).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+fn count_files(dir: &Path) -> u32 {
+    let mut n = 0;
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(d) = pending.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            match e.file_type() {
+                Ok(t) if t.is_dir() => pending.push(e.path()),
+                Ok(t) if t.is_file() && e.file_name() != SOURCE_FILE => n += 1,
+                _ => {}
+            }
+        }
+    }
+    n
+}
+
 /// The system prompt's part about skills. Always there, so the model
 /// installs the first skill the way the app knows about (measured against
 /// the reference app: without such guidance its model downloaded an MCP
@@ -403,7 +537,7 @@ pub fn prompt_section(skills: &[Skill]) -> String {
     let mut out = format!(
         "\n\nSkills:\n\
 - A skill is a folder in {dir}/ with a SKILL.md: instructions for a kind of task, often with scripts beside it. When a task matches an installed skill, read its SKILL.md with `file_read` first and follow it; run its scripts from its folder.\n\
-- To install a skill from a GitHub link, use `skill_install`; it puts the skill in {dir}/ and returns its SKILL.md. Do not download skills by hand. A skill you write yourself goes in its own folder there, with `name` and `description` at the top of its SKILL.md.\n"
+- To install a skill from a GitHub link, or from a .zip/.skill file or folder in the workspace, use `skill_install`; it puts the skill in {dir}/ and returns its SKILL.md. Do not download skills from GitHub by hand. A skill you write yourself goes in its own folder there, with `name` and `description` at the top of its SKILL.md.\n"
     );
     let on: Vec<&Skill> = skills.iter().filter(|s| s.enabled).collect();
     if on.is_empty() {
@@ -453,6 +587,8 @@ mod tests {
         }
         buf.into_inner()
     }
+
+    const LINK: &str = "https://github.com/o/repo";
 
     fn src(path: &str) -> GitHubSource {
         GitHubSource { owner: "o".into(), repo: "repo".into(), reference: "HEAD".into(), path: path.into() }
@@ -506,7 +642,7 @@ mod tests {
             ("scripts/q.py", "print(1)", 0o755),
             ("README.md", "readme", 0o644),
         ]);
-        let done = unpack(&zip, &src(""), &ws).unwrap();
+        let done = unpack(&zip, &src(""), LINK, &ws).unwrap();
         assert_eq!(done.folder, "12306-skill");
         assert_eq!(done.files, vec!["README.md", "SKILL.md", "scripts/q.py"]);
         assert!(!done.replaced);
@@ -532,8 +668,8 @@ mod tests {
     #[test]
     fn installing_again_replaces_the_folder() {
         let ws = scratch();
-        unpack(&archive(&[("SKILL.md", "---\nname: s\n---\nv1", 0o644), ("old.txt", "x", 0o644)]), &src(""), &ws).unwrap();
-        let again = unpack(&archive(&[("SKILL.md", "---\nname: s\n---\nv2", 0o644)]), &src(""), &ws).unwrap();
+        unpack(&archive(&[("SKILL.md", "---\nname: s\n---\nv1", 0o644), ("old.txt", "x", 0o644)]), &src(""), LINK, &ws).unwrap();
+        let again = unpack(&archive(&[("SKILL.md", "---\nname: s\n---\nv2", 0o644)]), &src(""), LINK, &ws).unwrap();
         assert!(again.replaced);
         assert_eq!(again.files, vec!["SKILL.md"]);
         assert!(!host_dir(&ws).join("s/old.txt").exists());
@@ -549,18 +685,18 @@ mod tests {
             ("skills/docx/SKILL.md", "---\nname: docx\n---", 0o644),
             (".github/SKILL.md", "not a skill", 0o644),
         ]);
-        match unpack(&zip, &src(""), &ws) {
+        match unpack(&zip, &src(""), LINK, &ws) {
             Err(CoreError::NoSingleSkill { candidates, .. }) => assert_eq!(
                 candidates,
                 vec!["https://github.com/o/repo/tree/HEAD/skills/docx", "https://github.com/o/repo/tree/HEAD/skills/pdf"]
             ),
             other => panic!("{other:?}"),
         }
-        let pdf = unpack(&zip, &src("skills/pdf"), &ws).unwrap();
+        let pdf = unpack(&zip, &src("skills/pdf"), LINK, &ws).unwrap();
         assert_eq!((pdf.folder.as_str(), pdf.files.clone()), ("pdf", vec!["SKILL.md".to_string(), "x.py".to_string()]));
         // A link to the folder itself chooses it.
-        assert_eq!(unpack(&zip, &src("skills/docx"), &ws).unwrap().folder, "docx");
-        match unpack(&archive(&[("README.md", "", 0o644)]), &src(""), &ws) {
+        assert_eq!(unpack(&zip, &src("skills/docx"), LINK, &ws).unwrap().folder, "docx");
+        match unpack(&archive(&[("README.md", "", 0o644)]), &src(""), LINK, &ws) {
             Err(CoreError::NoSingleSkill { candidates, .. }) => assert!(candidates.is_empty()),
             other => panic!("{other:?}"),
         }
@@ -569,12 +705,14 @@ mod tests {
     #[test]
     fn the_folder_falls_back_to_where_the_skill_was() {
         let ws = scratch();
-        let done = unpack(&archive(&[("tools/票务/SKILL.md", "---\nname: 火车票\n---", 0o644)]), &src(""), &ws);
-        // Neither the skill's name nor its folder's is usable as a folder name.
-        assert_eq!(done.unwrap().folder, "skill");
-        let done = unpack(&archive(&[("SKILL.md", "no front matter", 0o644)]), &src(""), &ws).unwrap();
-        assert_eq!(done.folder, "repo");
-        assert_eq!(list(&ws, &BTreeSet::new()).iter().find(|s| s.folder == "repo").unwrap().name, "repo");
+        let done = unpack(&archive(&[("tools/票务/SKILL.md", "---\nname: 火车票\n---", 0o644)]), &src(""), LINK, &ws);
+        // Neither the skill's name nor its folder's is usable as a folder
+        // name; the repository's is.
+        assert_eq!(done.unwrap().folder, "repo");
+        // With no name, it does not replace the one above.
+        let done = unpack(&archive(&[("SKILL.md", "no front matter", 0o644)]), &src(""), LINK, &ws).unwrap();
+        assert_eq!(done.folder, "repo-2");
+        assert_eq!(list(&ws, &BTreeSet::new()).iter().find(|s| s.folder == "repo-2").unwrap().name, "repo-2");
     }
 
     #[test]
@@ -590,6 +728,59 @@ mod tests {
     }
 
     #[test]
+    fn a_github_skill_remembers_its_link_and_lists_its_files() {
+        let ws = scratch();
+        unpack(&archive(&[("SKILL.md", "---\nname: s\n---", 0o644), ("scripts/a.py", "", 0o644)]), &src(""), LINK, &ws).unwrap();
+        let s = &list(&ws, &BTreeSet::new())[0];
+        assert_eq!((s.source.as_deref(), s.file_count), (Some(LINK), 2));
+        assert_eq!(files(&ws, "s").unwrap(), vec!["SKILL.md", "scripts/a.py"]);
+        assert!(files(&ws, "nope").is_err());
+    }
+
+    /// A zip the user made: no top folder of GitHub's, maybe macOS's extras.
+    fn user_zip(files: &[(&str, &str)]) -> Vec<u8> {
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut z = zip::ZipWriter::new(&mut buf);
+            for (path, body) in files {
+                z.start_file(*path, zip::write::SimpleFileOptions::default()).unwrap();
+                z.write_all(body.as_bytes()).unwrap();
+            }
+            z.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    #[test]
+    fn files_and_pasted_text_install_too() {
+        let ws = scratch();
+        let picked = scratch();
+        // A zip with the folder at its top, and the resource forks macOS adds.
+        std::fs::write(picked.join("pdf.skill"), user_zip(&[("pdf/SKILL.md", "---\nname: pdf\n---"), ("pdf/x.py", "1"), ("__MACOSX/pdf/._x.py", "junk")])).unwrap();
+        let done = install_file(&picked.join("pdf.skill"), &ws).unwrap();
+        assert_eq!((done.folder.as_str(), done.files.clone()), ("pdf", vec!["SKILL.md".to_string(), "x.py".to_string()]));
+        assert_eq!(list(&ws, &BTreeSet::new())[0].source, None, "nothing to update from");
+        // A zip with the files at its top: named after the file.
+        std::fs::write(picked.join("Trains.zip"), user_zip(&[("SKILL.md", "no name here"), ("q.py", "")])).unwrap();
+        assert_eq!(install_file(&picked.join("Trains.zip"), &ws).unwrap().folder, "trains");
+        // A SKILL.md alone.
+        std::fs::write(picked.join("SKILL.md"), "---\nname: Weather Now\n---\nAsk").unwrap();
+        assert_eq!(install_file(&picked.join("SKILL.md"), &ws).unwrap().folder, "weather-now");
+        // A folder the model made.
+        std::fs::create_dir_all(picked.join("made/bin")).unwrap();
+        std::fs::write(picked.join("made/SKILL.md"), "x").unwrap();
+        std::fs::write(picked.join("made/bin/run"), "x").unwrap();
+        assert_eq!(install_file(&picked.join("made"), &ws).unwrap().files, vec!["SKILL.md", "bin/run"]);
+        // Pasted text: without a name, a second paste does not replace the first.
+        assert_eq!(install_text("Just instructions", &ws).unwrap().folder, "pasted-skill");
+        assert_eq!(install_text("Other instructions", &ws).unwrap().folder, "pasted-skill-2");
+        assert_eq!(install_text("---\nname: notes\n---\nv1", &ws).unwrap().folder, "notes");
+        assert!(install_text("---\nname: notes\n---\nv2", &ws).unwrap().replaced, "a named one is replaced by name");
+        assert!(matches!(install_text("  ", &ws), Err(CoreError::NoSingleSkill { .. })));
+        assert!(install_file(&host_dir(&ws).join("pdf"), &ws).is_err(), "not from the skills folder itself");
+    }
+
+    #[test]
     fn the_prompt_always_says_how_to_install() {
         let none = prompt_section(&[]);
         assert!(none.contains("`skill_install`") && none.contains("No skills are installed."));
@@ -599,6 +790,8 @@ mod tests {
             description: "d".repeat(400),
             path: format!("/solos/ws/skills/{folder}"),
             enabled,
+            source: None,
+            file_count: 1,
         };
         let some = prompt_section(&[skill("a", true), skill("b", false)]);
         assert!(some.contains("\n- a: ddd"));

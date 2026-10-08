@@ -75,6 +75,9 @@ impl solos_core::tools::browser::BrowserBridge for Browser {
 #[uniffi::export(with_foreign)]
 pub trait SecretStore: Send + Sync {
     fn secret(&self, reference: String) -> Option<String>;
+    /// Keep `value` under `reference`; an empty value deletes it. Returns
+    /// whether it was kept.
+    fn store(&self, reference: String, value: String) -> bool;
 }
 
 #[derive(uniffi::Record)]
@@ -92,6 +95,9 @@ struct Secrets(Arc<dyn SecretStore>);
 impl solos_core::SecretResolver for Secrets {
     fn secret(&self, reference: &str) -> Option<String> {
         self.0.secret(reference.to_string())
+    }
+    fn store(&self, reference: &str, value: &str) -> bool {
+        self.0.store(reference.to_string(), value.to_string())
     }
 }
 
@@ -358,6 +364,27 @@ impl SolosCore {
         self.run(|e| async move { e.install_skill(source).await }).await
     }
 
+    /// Installs a skill from its `SKILL.md`, pasted.
+    pub async fn install_skill_text(&self, text: String) -> Result<Skill, CoreError> {
+        self.run(|e| async move { e.install_skill_text(text).await }).await
+    }
+
+    /// Installs a skill from a file on the device (`.zip`, `.skill`,
+    /// `SKILL.md`, or a folder with one).
+    pub async fn install_skill_file(&self, path: String) -> Result<Skill, CoreError> {
+        self.run(|e| async move { e.install_skill_file(path).await }).await
+    }
+
+    /// Installs a skill again from the GitHub link it came from.
+    pub async fn update_skill(&self, folder: String) -> Result<Skill, CoreError> {
+        self.run(|e| async move { e.update_skill(folder).await }).await
+    }
+
+    /// A skill's files, relative to its folder.
+    pub fn skill_files(&self, folder: String) -> Result<Vec<String>, CoreError> {
+        self.engine.skill_files(folder)
+    }
+
     pub async fn remove_skill(&self, folder: String) -> Result<(), CoreError> {
         self.run(|e| async move { e.remove_skill(folder).await }).await
     }
@@ -379,6 +406,16 @@ impl SolosCore {
     /// that cannot be reached is kept with its error.
     pub async fn add_mcp_servers(&self, json: String) -> Result<Vec<McpServer>, CoreError> {
         self.run(|e| async move { e.add_mcp_servers(json).await }).await
+    }
+
+    /// Adds one server as a form gives it (or replaces the one of its name).
+    pub async fn add_mcp_server(&self, server: McpServer) -> Result<McpServer, CoreError> {
+        self.run(|e| async move { e.add_mcp_server(server).await }).await
+    }
+
+    /// Replaces the server `name` with `server`, which may be renamed.
+    pub async fn update_mcp_server(&self, name: String, server: McpServer) -> Result<McpServer, CoreError> {
+        self.run(|e| async move { e.update_mcp_server(name, server).await }).await
     }
 
     pub async fn remove_mcp_server(&self, name: String) -> Result<(), CoreError> {

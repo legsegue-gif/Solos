@@ -91,6 +91,10 @@ pub struct Skill {
     /// The folder as the guest sees it (`/solos/ws/skills/<folder>`).
     pub path: String,
     pub enabled: bool,
+    /// The GitHub link it was installed from, to update it from; `None`
+    /// for a skill from a file, pasted, or written by the model.
+    pub source: Option<String>,
+    pub file_count: u32,
 }
 
 /// An MCP server: over HTTP when `url` is set, otherwise a `command` run in

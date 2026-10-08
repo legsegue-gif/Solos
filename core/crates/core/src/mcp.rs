@@ -23,6 +23,9 @@ use tokio_util::sync::CancellationToken;
 
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
 const SETTING: &str = "mcp_servers";
+/// A stored header or environment value that is kept in the secret store
+/// under the reference that follows.
+const KEPT: &str = "keychain:";
 /// `npx -y` fetches the package first, and the guest is emulated: a first
 /// start took 505 s for 12306-mcp (225 packages) in the simulator.
 const STDIO_START: Duration = Duration::from_secs(900);
@@ -207,14 +210,20 @@ impl Stdio {
     }
 }
 
+/// The end of what a server wrote to stderr, at most `max` characters,
+/// without the line every Node program in the guest starts with (iSH's
+/// forced `--jitless` turns off `--expose_wasm`), which says nothing about
+/// the server and pushed the real error out of a one-line status.
+fn stderr_tail(stderr: &StdMutex<String>, max: usize) -> String {
+    let all = stderr.lock().unwrap().clone();
+    let kept: Vec<&str> = all.lines().filter(|l| !l.starts_with("Warning: disabling flag --expose_wasm")).collect();
+    let tail = kept.join("\n").trim().to_string();
+    tail.chars().rev().take(max).collect::<Vec<_>>().into_iter().rev().collect()
+}
+
 fn ended(stderr: &StdMutex<String>) -> String {
-    let tail = stderr.lock().unwrap().trim().to_string();
-    if tail.is_empty() {
-        "the server stopped".into()
-    } else {
-        let tail: String = tail.chars().rev().take(Process::STDERR_TAIL).collect::<Vec<_>>().into_iter().rev().collect();
-        format!("the server stopped. The end of its stderr:\n{tail}")
-    }
+    let tail = stderr_tail(stderr, Process::STDERR_TAIL);
+    if tail.is_empty() { "the server stopped".into() } else { format!("the server stopped. The end of its stderr:\n{tail}") }
 }
 
 #[async_trait]
@@ -236,8 +245,7 @@ impl Transport for Stdio {
             Ok(Err(_)) => Err(ended(&self.stderr)),
             Err(_) => {
                 self.pending.lock().unwrap().remove(&id);
-                let tail = self.stderr.lock().unwrap().trim().to_string();
-                let tail: String = tail.chars().rev().take(1500).collect::<Vec<_>>().into_iter().rev().collect();
+                let tail = stderr_tail(&self.stderr, 1500);
                 Err(if tail.is_empty() {
                     format!("no answer to {method} in {} s", timeout.as_secs())
                 } else {
@@ -383,7 +391,13 @@ pub struct Mcp {
 }
 
 struct Inner {
+    /// As the user sees them: secret values in place.
     servers: RwLock<Vec<McpServer>>,
+    /// Where header and environment values are kept (the Keychain).
+    secrets: Arc<dyn crate::SecretResolver>,
+    /// The references stored there at the last save, so a value a server no
+    /// longer has is deleted.
+    kept: StdMutex<std::collections::BTreeSet<String>>,
     /// One slot per server that has been started, each with its own lock,
     /// so a server that is slow to start holds up only its own calls.
     live: StdMutex<HashMap<String, Slot>>,
@@ -404,14 +418,27 @@ impl Drop for Inner {
 }
 
 impl Mcp {
-    pub async fn open(store: Store, sandbox: Arc<dyn Sandbox>) -> Result<Self, CoreError> {
-        let servers: Vec<McpServer> = store
+    pub async fn open(store: Store, sandbox: Arc<dyn Sandbox>, secrets: Arc<dyn crate::SecretResolver>) -> Result<Self, CoreError> {
+        let mut servers: Vec<McpServer> = store
             .setting(SETTING)
             .await
             .map_err(|e| CoreError::Storage { detail: e.to_string() })?
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
-        Ok(Self { inner: Arc::new(Inner { servers: RwLock::new(servers), live: Default::default(), sandbox, store }) })
+        let mut kept = std::collections::BTreeSet::new();
+        for s in &mut servers {
+            for map in [&mut s.headers, &mut s.env] {
+                for value in map.values_mut() {
+                    if let Some(reference) = value.strip_prefix(KEPT).map(str::to_string) {
+                        *value = secrets.secret(&reference).unwrap_or_default();
+                        kept.insert(reference);
+                    }
+                }
+            }
+        }
+        Ok(Self {
+            inner: Arc::new(Inner { servers: RwLock::new(servers), secrets, kept: StdMutex::new(kept), live: Default::default(), sandbox, store }),
+        })
     }
 
     pub fn servers(&self) -> Vec<McpServer> {
@@ -422,8 +449,30 @@ impl Mcp {
         self.servers().into_iter().find(|s| s.name == name).ok_or_else(|| CoreError::NoSuchMcpServer { name: name.to_string() })
     }
 
+    /// Header and environment values go to the platform's secret store and
+    /// the settings keep a reference; where there is no such store (the
+    /// desktop), they stay in the settings.
     async fn save(&self) -> Result<(), CoreError> {
-        let value = serde_json::to_value(self.servers()).map_err(|e| CoreError::Internal { detail: e.to_string() })?;
+        let mut stored = self.servers();
+        let mut kept = std::collections::BTreeSet::new();
+        for s in &mut stored {
+            let name = s.name.clone();
+            for (kind, map) in [("header", &mut s.headers), ("env", &mut s.env)] {
+                for (key, value) in map.iter_mut() {
+                    let reference = format!("mcp/{name}/{kind}/{key}");
+                    if !value.is_empty() && self.inner.secrets.store(&reference, value) {
+                        *value = format!("{KEPT}{reference}");
+                        kept.insert(reference);
+                    }
+                }
+            }
+        }
+        let gone: Vec<String> = self.inner.kept.lock().unwrap().difference(&kept).cloned().collect();
+        for reference in gone {
+            self.inner.secrets.store(&reference, "");
+        }
+        *self.inner.kept.lock().unwrap() = kept;
+        let value = serde_json::to_value(stored).map_err(|e| CoreError::Internal { detail: e.to_string() })?;
         self.inner.store.put_setting(SETTING, value).await.map_err(|e| CoreError::Storage { detail: e.to_string() })
     }
 
@@ -521,6 +570,24 @@ impl Mcp {
         }
         self.save().await?;
         Ok(done)
+    }
+
+    /// Replace the server `old_name` with `server` (which may be renamed),
+    /// connecting to it; one that cannot be reached is kept with its error.
+    pub async fn update(&self, old_name: &str, server: McpServer) -> Result<McpServer, CoreError> {
+        let mut server = server;
+        server.name = server.name.trim().to_string();
+        if server.name.is_empty() || (server.url.trim().is_empty() && server.command.trim().is_empty()) {
+            return Err(CoreError::NotAnMcpConfig { detail: "a server needs a name, and a command or an address".into() });
+        }
+        if old_name != server.name {
+            if self.servers().iter().any(|s| s.name == server.name) {
+                return Err(CoreError::NotAnMcpConfig { detail: format!("there is already a server named {}", server.name) });
+            }
+            self.stop(old_name).await;
+            self.inner.servers.write().unwrap().retain(|s| s.name != old_name);
+        }
+        Ok(self.add(vec![server], true).await?.remove(0))
     }
 
     pub async fn remove(&self, name: &str) -> Result<(), CoreError> {
@@ -813,6 +880,13 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_server_reports_its_stderr_without_nodes_flag_warning() {
+        let err = StdMutex::new("Warning: disabling flag --expose_wasm due to conflicting flags\nnpm error code ENOTEMPTY\n".to_string());
+        assert_eq!(ended(&err), "the server stopped. The end of its stderr:\nnpm error code ENOTEMPTY");
+        assert_eq!(ended(&StdMutex::new("Warning: disabling flag --expose_wasm due to conflicting flags\n".into())), "the server stopped");
+    }
+
+    #[test]
     fn tool_names_use_safe_letters_and_fit() {
         assert_eq!(tool_name("12306-mcp", "get-tickets"), "mcp_12306-mcp_get-tickets");
         assert_eq!(tool_name("my server", "a.b/c"), "mcp_my_server_a_b_c");
@@ -843,7 +917,16 @@ mod tests {
     #[test]
     fn a_server_schema_gets_the_label_unless_it_has_a_title_of_its_own() {
         let store_less = |schema: &str| ServerTool {
-            mcp: Mcp { inner: Arc::new(Inner { servers: Default::default(), live: Default::default(), sandbox: Arc::new(crate::sandbox::host::HostSandbox::new("/tmp")), store: Store::open(&std::env::temp_dir().join(format!("solos-mcp-{}.db", uuid::Uuid::new_v4()))).unwrap() }) },
+            mcp: Mcp {
+                inner: Arc::new(Inner {
+                    servers: Default::default(),
+                    secrets: Arc::new(Memory::default()),
+                    kept: Default::default(),
+                    live: Default::default(),
+                    sandbox: Arc::new(crate::sandbox::host::HostSandbox::new("/tmp")),
+                    store: Store::open(&std::env::temp_dir().join(format!("solos-mcp-{}.db", uuid::Uuid::new_v4()))).unwrap(),
+                }),
+            },
             server: "s".into(),
             tool: McpTool { name: "t".into(), description: "d".into(), input_schema: schema.into() },
         };
@@ -856,6 +939,52 @@ mod tests {
         assert_eq!(s["properties"]["title"]["type"], "string");
         let (s, added) = store_less("").schema();
         assert!(added && s["properties"]["title"].is_object());
+    }
+
+    /// A secret store in memory, as the Keychain is to the app.
+    #[derive(Default)]
+    struct Memory(StdMutex<HashMap<String, String>>);
+    impl crate::SecretResolver for Memory {
+        fn secret(&self, reference: &str) -> Option<String> {
+            self.0.lock().unwrap().get(reference).cloned()
+        }
+        fn store(&self, reference: &str, value: &str) -> bool {
+            let mut m = self.0.lock().unwrap();
+            if value.is_empty() { m.remove(reference); } else { m.insert(reference.into(), value.into()); }
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn header_and_env_values_live_in_the_secret_store() {
+        use crate::SecretResolver;
+        let db = std::env::temp_dir().join(format!("solos-mcp-{}.db", uuid::Uuid::new_v4()));
+        let secrets = Arc::new(Memory::default());
+        let sandbox: Arc<dyn Sandbox> = Arc::new(crate::sandbox::host::HostSandbox::new(std::env::temp_dir().join(format!("solos-mcp-{}", uuid::Uuid::new_v4()))));
+        let mcp = Mcp::open(Store::open(&db).unwrap(), sandbox.clone(), secrets.clone()).await.unwrap();
+        // Off, so adding does not try to reach it.
+        let mut s = entry("web", &json!({"url": "https://x/mcp", "headers": {"Authorization": "Bearer k1"}, "env": {"TOKEN": "t"}, "disabled": true})).unwrap();
+        mcp.add(vec![s.clone()], true).await.unwrap();
+        let raw = Store::open(&db).unwrap().setting(SETTING).await.unwrap().unwrap().to_string();
+        assert!(!raw.contains("Bearer k1") && raw.contains("keychain:mcp/web/header/Authorization"), "{raw}");
+        assert_eq!(secrets.secret("mcp/web/header/Authorization").as_deref(), Some("Bearer k1"));
+
+        // Read back with the values in place; a dropped key is deleted.
+        let again = Mcp::open(Store::open(&db).unwrap(), sandbox.clone(), secrets.clone()).await.unwrap();
+        assert_eq!(again.servers()[0].headers["Authorization"], "Bearer k1");
+        s.env.clear();
+        again.update("web", s.clone()).await.unwrap();
+        assert_eq!(secrets.secret("mcp/web/env/TOKEN"), None);
+
+        // Renamed: the old name's values go, the new name's come.
+        let renamed = McpServer { name: "site".into(), ..s.clone() };
+        again.update("web", renamed).await.unwrap();
+        assert_eq!(again.servers().iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["site"]);
+        assert_eq!(secrets.secret("mcp/web/header/Authorization"), None);
+        assert_eq!(secrets.secret("mcp/site/header/Authorization").as_deref(), Some("Bearer k1"));
+        assert!(again.update("site", McpServer { url: String::new(), ..s }).await.is_err(), "neither command nor address");
+        again.remove("site").await.unwrap();
+        assert!(secrets.0.lock().unwrap().is_empty());
     }
 
     #[test]
