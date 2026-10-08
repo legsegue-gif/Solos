@@ -122,7 +122,8 @@ enum Probe {
             let core = try await openCore(
                 config: CoreConfig(dataDir: dataDir.path,
                                    bundledRootfs: Bundle.main.path(forResource: "alpine-rootfs", ofType: "zip"),
-                                   captureDir: env["SOLOS_PROBE_CAPTURE"]),
+                                   captureDir: env["SOLOS_PROBE_CAPTURE"],
+                                   workspaceDir: WorkspaceFolder.path),
                 secrets: EnvSecret(),
                 browser: BrowserTools(),
                 device: DeviceTools())
@@ -225,7 +226,8 @@ enum Probe {
             let core = try await openCore(
                 config: CoreConfig(dataDir: dataDir.path,
                                    bundledRootfs: Bundle.main.path(forResource: "alpine-rootfs", ofType: "zip"),
-                                   captureDir: nil),
+                                   captureDir: nil,
+                                   workspaceDir: WorkspaceFolder.path),
                 secrets: EnvSecret(),
                 browser: BrowserTools(),
                 device: DeviceTools())
@@ -290,7 +292,8 @@ enum Probe {
             let core = try await openCore(
                 config: CoreConfig(dataDir: dataDir.path,
                                    bundledRootfs: Bundle.main.path(forResource: "alpine-rootfs", ofType: "zip"),
-                                   captureDir: nil),
+                                   captureDir: nil,
+                                   workspaceDir: WorkspaceFolder.path),
                 secrets: EnvSecret(),
                 browser: BrowserTools(),
                 device: DeviceTools())

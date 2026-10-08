@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<!-- What the system shows when a device tool first asks for access. Merged
-     into the generated Info.plist of every target that registers the device
-     tools. -->
+<!-- What the system shows when a device tool first asks for access, and the
+     two keys that put the workspace (the Documents folder) in the Files app.
+     Merged into the generated Info.plist of every target that registers the
+     device tools. -->
 <dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Solos reads and adds calendar events when you ask it to.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>

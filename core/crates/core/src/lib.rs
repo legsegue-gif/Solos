@@ -16,6 +16,7 @@ pub mod providers;
 pub mod sandbox;
 pub mod store;
 pub mod title;
+pub mod workspace;
 pub mod tools;
 
 pub use engine::{Engine, EngineConfig, SecretResolver};

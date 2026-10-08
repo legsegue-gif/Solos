@@ -35,7 +35,8 @@ side-by-side comparison shows it is the better one.
 - Model tools: shell (with background jobs), read / write / edit file,
   read image.
 - A terminal the user can open and type into, sharing the model's workspace.
-- A file browser over the workspace.
+- A file browser over the workspace; the workspace is also a folder in the Files app
+  (On My iPhone ▸ Solos), where files can be added, opened and edited in place.
 - A CLI inside the sandbox so scripts can call device capabilities.
 
 ### Browser

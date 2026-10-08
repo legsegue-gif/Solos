@@ -33,7 +33,7 @@ final class AppCore {
         let capture = ProcessInfo.processInfo.environment["SOLOS_CAPTURE_DIR"]
         do {
             let core = try await openCore(
-                config: CoreConfig(dataDir: dataDir.path, bundledRootfs: rootfs, captureDir: capture),
+                config: CoreConfig(dataDir: dataDir.path, bundledRootfs: rootfs, captureDir: capture, workspaceDir: WorkspaceFolder.path),
                 secrets: KeychainSecrets(),
                 browser: BrowserTools(),
                 device: DeviceTools())

@@ -89,6 +89,10 @@ pub struct CoreConfig {
     pub bundled_rootfs: Option<String>,
     /// Write request bodies and raw response streams here (diagnosis only).
     pub capture_dir: Option<String>,
+    /// The folder `/solos/ws` shows; `None` keeps it inside `data_dir`. What
+    /// an earlier version kept in `data_dir/workspace` is moved here once.
+    #[uniffi(default = None)]
+    pub workspace_dir: Option<String>,
 }
 
 struct Secrets(Arc<dyn SecretStore>);
@@ -128,8 +132,12 @@ pub async fn open_core(
         .build()
         .map_err(internal)?;
     let data_dir = PathBuf::from(&config.data_dir);
+    let workspace = config.workspace_dir.as_ref().map(PathBuf::from).unwrap_or_else(|| data_dir.join("workspace"));
+    if let Err(e) = solos_core::workspace::migrate(&data_dir.join("workspace"), &workspace) {
+        return Err(CoreError::Storage { detail: format!("moving the workspace to {}: {e}", workspace.display()) });
+    }
     let sandbox: Arc<dyn Sandbox> = match &config.bundled_rootfs {
-        Some(zip) => Arc::new(IshSandbox::new(PathBuf::from(zip), data_dir.join("rootfs"), data_dir.join("workspace"))),
+        Some(zip) => Arc::new(IshSandbox::new(PathBuf::from(zip), data_dir.join("rootfs"), workspace)),
         None => Arc::new(HostSandbox::new(data_dir.join("guest"))),
     };
     let mut tools = Registry::builtin();

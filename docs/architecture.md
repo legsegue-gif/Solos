@@ -228,6 +228,11 @@ trait Sandbox {
   callback registry.
 - `HostSandbox` runs the same interface on macOS/Linux for tests and the
   desktop CLI.
+- The workspace folder is the app's Documents folder on iOS (`CoreConfig.workspace_dir`),
+  shown by the Files app (On My iPhone ▸ Solos) and edited there in place; what an
+  earlier version kept in `data_dir/workspace` is moved across once at start-up
+  (`workspace::migrate`: nothing is overwritten, a clash stays in the old folder).
+  The database and the unpacked system stay in Application Support.
 - Layout inside the guest: `/solos/ws` (the workspace, the default working
   directory for the model's commands; the terminal opens at home), with the
   user's attachments in `/solos/ws/attachments` and skills in
