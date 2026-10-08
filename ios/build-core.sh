@@ -28,7 +28,12 @@ if command -v git >/dev/null; then
     || echo "warning: deps/ish/.github/namecheck differs from tools/namecheck" >&2
 fi
 
-[ -f "$ROOT/deps/out/ios-$PLATFORM/lib/libish.a" ] || "${HOSTENV[@]}" "$ROOT/deps/build_ish.sh" --sdk "$PLATFORM"
+# Every time, not only when missing: ninja rebuilds only what changed (about
+# a second when nothing did), and a kernel change in deps/ish must reach the
+# app. Built only when missing, the device library stayed weeks behind the
+# simulator's, and a removed build directory left the shim without the
+# generated `cpu-offsets.h`.
+"${HOSTENV[@]}" "$ROOT/deps/build_ish.sh" --sdk "$PLATFORM"
 [ -f "$ROOT/deps/out/rootfs/alpine-rootfs.zip" ] || "${HOSTENV[@]}" "$ROOT/deps/build_rootfs.sh"
 
 cd "$ROOT/core"

@@ -10,6 +10,7 @@ touching the area; add a line when a new one is found.
 |---|---|---|
 | Copying the reference app's prose (prompts, tag names) instead of following its behaviour. | This project: summary instructions, attachment tag | Behaviour and numbers may follow the reference app, with a note of where they came from; text sent to models is written here. |
 | Searching terminal output for "\nX" in Swift: "\r\n" is one Character, so the search never matches and a working terminal looks stuck. | This project, terminal probe (a "stalled" 40 KB paste that had finished in 0.1 s) | Search for "\r\nX"; print the full output tail on failure, never a truncated one. |
+| A build step that runs only when its output is missing: `build-core.sh` built iSH only without `libish.a`, so the device library stayed weeks behind the simulator's (kernel fixes never reached the phone), and once its build directory was gone the shim failed on the generated `cpu-offsets.h`. | This project, device build | `build-core.sh` runs `build_ish.sh` every time (ninja is incremental, ~3 s with nothing changed); after a deps/ish change, build for both platforms. |
 | Upstream iSH syncs and notes carry the reference app's name (repo paths, issue references, env vars, guest paths); one pushed sync leaked it. | This project, deps/ish | Rename to the Solos forms before committing; `tools/namecheck` (the hooks) refuses the name in contents, paths, messages and identities. |
 
 ## Model-facing text
