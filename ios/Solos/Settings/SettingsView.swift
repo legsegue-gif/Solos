@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var mirrors: [PackageMirror] = []
     /// Read again whenever Settings shows, since it is changed on its page.
     @State private var skillCount = 0
+    @State private var mcpCount = 0
 
     var body: some View {
         NavigationStack {
@@ -91,6 +92,9 @@ struct SettingsView: View {
                     NavigationLink { SkillsView() } label: {
                         LabeledContent(String(localized: "Skills"), value: skillCount == 0 ? String(localized: "None") : String(skillCount))
                     }
+                    NavigationLink { McpServersView() } label: {
+                        LabeledContent(String(localized: "MCP servers"), value: mcpCount == 0 ? String(localized: "None") : String(mcpCount))
+                    }
                 } header: {
                     Text("Extensions")
                 }
@@ -107,6 +111,7 @@ struct SettingsView: View {
                 browserAgent = BrowserPrefs.agent
                 mirrors = app.core?.chosenPackageMirrors() ?? []
                 skillCount = app.core?.skills().count ?? 0
+                mcpCount = app.core?.mcpServers().count ?? 0
             }
             .navigationTitle(String(localized: "Settings"))
             .navigationBarTitleDisplayMode(.inline)

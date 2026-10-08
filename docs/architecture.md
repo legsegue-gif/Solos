@@ -270,11 +270,27 @@ trait Sandbox {
 ### 4.10 `mcp`
 
 - Servers are kept in the store as the usual `mcpServers` entries (HTTP:
-  `url`, `headers`; stdio: `command`, `args`, `env`), each turned on or off.
-- HTTP servers are spoken to by the core. Stdio servers run in the guest,
-  started and kept by the core through the sandbox.
-- The prompt always says how to add a server; the tools of servers that are
-  on are offered to the model.
+  `url`, `headers`; stdio: `command`, `args`, `env`), each turned on or off,
+  with the tools it listed when last connected.
+- The core is the MCP client (JSON-RPC: `initialize`, `tools/list`,
+  `tools/call`). HTTP servers are spoken to directly (streamable HTTP: a
+  POST answered with JSON or an event stream, the session id carried).
+  Stdio servers run in the guest as a long-running process with piped
+  stdin and stdout (`Sandbox::spawn`), one JSON message per line; the core
+  starts one when its tools are first called, keeps it while the engine
+  runs, and stops it when the server is turned off or removed.
+- Each tool of a server that is on is a tool of its own for the model,
+  `mcp_<server>_<tool>`, with the server's schema (plus the call's
+  `title` when the schema has none). The registry asks the MCP servers for
+  their tools on every request, so a server added in a turn is usable on
+  the next round of that turn. Results map text to text, images to
+  workspace files shown to the model, and anything else to its JSON.
+- `mcp_add` takes a server's name and the entry as its README gives it;
+  it connects, lists the tools, saves the server, and returns the tools or
+  the reason it failed (with the end of the server's stderr). Settings adds
+  from pasted `mcpServers` JSON through the same function. The prompt
+  always says how to add a server, and that a stdio server's command runs
+  in the guest, so what it needs (`node`, `python3`) is installed first.
 
 ---
 

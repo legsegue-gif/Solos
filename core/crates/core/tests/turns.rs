@@ -742,3 +742,204 @@ async fn turned_off_skills_stay_off_across_a_restart() {
     let on: Vec<(String, bool)> = engine.skills().into_iter().map(|s| (s.folder, s.enabled)).collect();
     assert_eq!(on, vec![("a".into(), true), ("b".into(), false)]);
 }
+
+fn call_tool(id: &str, name: &str, args: &str) -> Reply {
+    Reply {
+        events: vec![
+            StreamEvent::ToolCallStart { index: 0, id: id.into(), name: name.into() },
+            StreamEvent::ToolCallArgs { index: 0, fragment: args.into() },
+            StreamEvent::Finish(FinishReason::ToolCalls),
+        ],
+        error: None,
+        delay_ms: 0,
+    }
+}
+
+/// A stdio MCP server in plain `sh`: it logs a line to stdout first (which
+/// a client must skip), lists one tool, `add`, and answers it.
+fn fake_stdio_server(dir: &std::path::Path) -> String {
+    let path = dir.join("fake-mcp.sh");
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(
+        &path,
+        r#"echo "fake server starting"
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}}\n' "$id" ;;
+    *'"method":"tools/list"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"add","description":"Adds a and b.","inputSchema":{"type":"object","properties":{"a":{"type":"number"},"b":{"type":"number"}},"required":["a","b"]}}]}}\n' "$id" ;;
+    *'"method":"tools/call"'*)
+      a=$(printf '%s' "$line" | sed -n 's/.*"a":\([0-9]*\).*/\1/p'); b=$(printf '%s' "$line" | sed -n 's/.*"b":\([0-9]*\).*/\1/p')
+      echo "called with $a $b" >&2
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"%s"}]}}\n' "$id" "$((a+b))" ;;
+  esac
+done
+"#,
+    )
+    .unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+fn tool_output(snap: &Snapshot, call_id: &str) -> (String, bool) {
+    snap.messages
+        .iter()
+        .flat_map(|m| m.parts.iter())
+        .find_map(|p| match p {
+            Part::ToolResult { call_id: c, output, is_error, .. } if c == call_id => Some((output.clone(), *is_error)),
+            _ => None,
+        })
+        .expect("a result for the call")
+}
+
+#[tokio::test]
+async fn a_server_added_in_a_turn_is_usable_on_its_next_round() {
+    let dir = std::env::temp_dir().join(format!("solos-mcp-{}", uuid::Uuid::new_v4()));
+    let script = fake_stdio_server(&dir);
+    let add = format!(r#"{{"title":"add the server","name":"fake","config":{{"command":"sh","args":["{script}"]}}}}"#);
+    let (engine, scripted) = engine(
+        vec![call_tool("c1", "mcp_add", &add), call_tool("c2", "mcp_fake_add", r#"{"title":"sum","a":3,"b":4}"#), text("7")],
+        Some("k"),
+    )
+    .await;
+    let mut rx = engine.subscribe();
+    let s = engine.create_session(None).await.unwrap();
+    engine.send(s.id.clone(), "add it and add 3 and 4".into()).await.unwrap();
+    assert_eq!(outcomes(&until_turns_finish(&mut rx, 1).await), vec![TurnOutcome::Completed]);
+
+    let snap = engine.snapshot(s.id.clone()).await.unwrap();
+    let (added, err) = tool_output(&snap, "c1");
+    assert!(!err && added.starts_with("Added the MCP server `fake` with 1 tool:\n- mcp_fake_add: Adds a and b."), "{added}");
+    assert_eq!(tool_output(&snap, "c2"), ("7".to_string(), false));
+
+    let names = |i: usize| scripted.requests.lock().unwrap()[i].tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
+    assert!(!names(0).contains(&"mcp_fake_add".to_string()));
+    assert!(names(1).contains(&"mcp_fake_add".to_string()), "offered on the round after it was added");
+    let req = scripted.requests.lock().unwrap()[1].clone();
+    let spec = req.tools.iter().find(|t| t.name == "mcp_fake_add").unwrap();
+    assert_eq!(spec.schema["required"], serde_json::json!(["title", "a", "b"]));
+    assert!(req.system.contains("No servers are added."), "the prompt is from the turn's start");
+
+    let servers = engine.mcp_servers();
+    assert_eq!((servers.len(), servers[0].tools.len(), servers[0].error.clone()), (1, 1, None));
+}
+
+#[tokio::test]
+async fn a_server_that_will_not_start_is_kept_with_what_it_said() {
+    let (engine, _) = engine(vec![], Some("k")).await;
+    let added = engine
+        .add_mcp_servers(r#"{"mcpServers": {"broken": {"command": "sh", "args": ["-c", "echo missing dependency >&2; exit 3"]}}}"#.into())
+        .await
+        .unwrap();
+    let err = added[0].error.clone().expect("an error");
+    assert!(err.contains("missing dependency"), "{err}");
+    assert!(added[0].tools.is_empty());
+    assert_eq!(engine.mcp_servers().len(), 1, "kept, so it can be fixed or deleted");
+    engine.remove_mcp_server("broken".into()).await.unwrap();
+    assert!(engine.mcp_servers().is_empty());
+    assert!(matches!(engine.remove_mcp_server("broken".into()).await, Err(CoreError::NoSuchMcpServer { .. })));
+}
+
+#[tokio::test]
+async fn a_saved_server_starts_on_its_first_call_and_stops_when_turned_off() {
+    let dir = std::env::temp_dir().join(format!("solos-mcp-{}", uuid::Uuid::new_v4()));
+    let script = fake_stdio_server(&dir);
+    let data = std::env::temp_dir().join(format!("solos-mcp-data-{}", uuid::Uuid::new_v4()));
+    let open = |script: Vec<Reply>| {
+        let data = data.clone();
+        async move {
+            let scripted = Arc::new(Scripted {
+                replies: Mutex::new(script.into()),
+                requests: Mutex::new(vec![]),
+                titles: Mutex::new(VecDeque::new()),
+                title_requests: Mutex::new(vec![]),
+            });
+            let p = scripted.clone();
+            let engine = Engine::open(EngineConfig {
+                data_dir: data.clone(),
+                sandbox: Arc::new(HostSandbox::new(data.join("guest"))),
+                tools: Registry::builtin(),
+                secrets: Arc::new(Key(Some("k"))),
+                capture_dir: None,
+                provider_factory: Some(Arc::new(move |_ep: &Endpoint, _k: String, _c: &Capture| Ok(p.clone() as Arc<dyn Provider>))),
+            })
+            .await
+            .unwrap();
+            (engine, scripted)
+        }
+    };
+    let (engine, _) = open(vec![]).await;
+    engine.add_mcp_servers(format!(r#"{{"mcpServers": {{"fake": {{"command": "sh", "args": ["{script}"]}}}}}}"#)).await.unwrap();
+    drop(engine);
+
+    // A new engine knows the tools from the store, and starts the server
+    // only when one is called.
+    let (engine, scripted) = open(vec![call_tool("c1", "mcp_fake_add", r#"{"title":"sum","a":20,"b":22}"#), text("42"), text("off")]).await;
+    engine
+        .set_settings(Settings {
+            endpoints: vec![Endpoint { id: "e".into(), name: "Test".into(), protocol: Protocol::OpenAi, base_url: String::new(), secret_ref: "k".into() }],
+            default_model: Some(ModelChoice { endpoint_id: "e".into(), model: "m".into() }),
+            thinking: false,
+        })
+        .await
+        .unwrap();
+    let mut rx = engine.subscribe();
+    let s = engine.create_session(None).await.unwrap();
+    engine.send(s.id.clone(), "add 20 and 22".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+    assert!(scripted.requests.lock().unwrap()[0].system.contains("Added servers: fake (1 tool)"));
+    assert_eq!(tool_output(&engine.snapshot(s.id.clone()).await.unwrap(), "c1"), ("42".to_string(), false));
+
+    engine.set_mcp_server_enabled("fake".into(), false).await.unwrap();
+    engine.send(s.id.clone(), "again".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+    let last = scripted.requests.lock().unwrap().last().unwrap().clone();
+    assert!(!last.tools.iter().any(|t| t.name.starts_with("mcp_fake_")), "a server turned off offers nothing");
+    assert!(last.system.contains("No servers are added."));
+}
+
+/// A streamable-HTTP MCP server: JSON answers, an event-stream answer for
+/// `tools/call`, and a session it insists on after `initialize`.
+async fn fake_http_server() -> String {
+    use axum::{http::HeaderMap, response::IntoResponse, routing::post, Json, Router};
+    async fn handle(headers: HeaderMap, Json(msg): Json<serde_json::Value>) -> axum::response::Response {
+        let id = msg.get("id").cloned();
+        let method = msg["method"].as_str().unwrap_or_default().to_string();
+        let session = headers.get("mcp-session-id").and_then(|v| v.to_str().ok()).map(str::to_string);
+        if method != "initialize" && session.as_deref() != Some("s-1") {
+            return (axum::http::StatusCode::BAD_REQUEST, "no session").into_response();
+        }
+        match method.as_str() {
+            "initialize" => (
+                [("mcp-session-id", "s-1")],
+                Json(serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "h", "version": "1"}}})),
+            )
+                .into_response(),
+            "notifications/initialized" => axum::http::StatusCode::ACCEPTED.into_response(),
+            "tools/list" => Json(serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {"tools": [{"name": "echo", "description": "Echoes.", "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}}}]}})).into_response(),
+            "tools/call" => {
+                let text = msg["params"]["arguments"]["text"].as_str().unwrap_or_default();
+                let note = serde_json::json!({"jsonrpc": "2.0", "method": "notifications/progress", "params": {}});
+                let reply = serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {"content": [{"type": "text", "text": format!("echo: {text}")}]}});
+                ([("content-type", "text/event-stream")], format!("event: message\ndata: {note}\n\nevent: message\ndata: {reply}\n\n")).into_response()
+            }
+            _ => (axum::http::StatusCode::NOT_FOUND, "?").into_response(),
+        }
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, Router::new().route("/mcp", post(handle))).await.unwrap() });
+    format!("http://{addr}/mcp")
+}
+
+#[tokio::test]
+async fn an_http_server_is_used_with_its_session_and_event_stream_answers() {
+    let url = fake_http_server().await;
+    let (engine, _) = engine(vec![call_tool("c1", "mcp_web_echo", r#"{"title":"echo","text":"hi"}"#), text("done")], Some("k")).await;
+    let added = engine.add_mcp_servers(format!(r#"{{"mcpServers": {{"web": {{"type": "http", "url": "{url}"}}}}}}"#)).await.unwrap();
+    assert_eq!((added[0].error.clone(), added[0].tools.len()), (None, 1));
+    let mut rx = engine.subscribe();
+    let s = engine.create_session(None).await.unwrap();
+    engine.send(s.id.clone(), "echo hi".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+    assert_eq!(tool_output(&engine.snapshot(s.id.clone()).await.unwrap(), "c1"), ("echo: hi".to_string(), false));
+}

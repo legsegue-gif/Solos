@@ -64,6 +64,8 @@ struct Inner {
     /// Skills the user turned off, by folder. The skills themselves are the
     /// folders on disk (`skills`).
     disabled_skills: RwLock<std::collections::BTreeSet<String>>,
+    /// MCP servers; their tools are a source of the registry's.
+    mcp: crate::mcp::Mcp,
     sessions: Mutex<HashMap<String, Arc<Slot>>>,
     /// Open terminals by id. A terminal belongs to no session.
     terminals: std::sync::Mutex<HashMap<String, Arc<dyn crate::sandbox::Terminal>>>,
@@ -154,6 +156,12 @@ impl Engine {
                 tracing::warn!("the {} mirror could not be applied: {e}", crate::mirrors::key(kind));
             }
         }
+        // MCP servers' tools join the fixed ones, and `mcp_add` with them,
+        // before anything takes a copy of the registry.
+        let mcp = crate::mcp::Mcp::open(store.clone(), cfg.sandbox.clone()).await?;
+        let mut cfg = cfg;
+        cfg.tools.add_source(Arc::new(mcp.clone()));
+        cfg.tools.add(Arc::new(crate::mcp::McpAdd(mcp.clone())));
         // The tools, for scripts in the sandbox (`solos`). Without it the
         // model still has every tool, so a failure is logged, not fatal.
         let bridge_stop = CancellationToken::new();
@@ -176,6 +184,7 @@ impl Engine {
                 custom_windows: RwLock::new(custom_windows),
                 package_mirrors: RwLock::new(package_mirrors),
                 disabled_skills: RwLock::new(disabled_skills),
+                mcp,
                 sessions: Mutex::new(HashMap::new()),
                 terminals: std::sync::Mutex::new(HashMap::new()),
                 events,
@@ -339,6 +348,31 @@ impl Engine {
     /// A skill's `SKILL.md`, for showing it.
     pub fn skill_instructions(&self, folder: String) -> Result<String, CoreError> {
         crate::skills::instructions(&self.inner.sandbox.workspace_dir(), &folder)
+    }
+
+    pub fn mcp_servers(&self) -> Vec<McpServer> {
+        self.inner.mcp.servers()
+    }
+
+    /// Add servers from pasted `mcpServers` JSON (or replace those of the
+    /// same names), connecting to each; one that cannot be reached is kept
+    /// with its error.
+    pub async fn add_mcp_servers(&self, json: String) -> Result<Vec<McpServer>, CoreError> {
+        let servers = crate::mcp::parse_config(&json)?;
+        self.inner.mcp.add(servers, true).await
+    }
+
+    pub async fn remove_mcp_server(&self, name: String) -> Result<(), CoreError> {
+        self.inner.mcp.remove(&name).await
+    }
+
+    pub async fn set_mcp_server_enabled(&self, name: String, enabled: bool) -> Result<(), CoreError> {
+        self.inner.mcp.set_enabled(&name, enabled).await
+    }
+
+    /// Connect to a server again and list its tools afresh.
+    pub async fn refresh_mcp_server(&self, name: String) -> Result<McpServer, CoreError> {
+        self.inner.mcp.refresh(&name).await
     }
 
     pub fn workspace_dir(&self) -> std::path::PathBuf {
@@ -900,7 +934,7 @@ impl Engine {
         let cfg = TurnConfig {
             session_id: session_id.clone(),
             model: choice.model.clone(),
-            system: crate::prompt::system_prompt(&self.inner.sandbox.info(), &self.inner.tools, &self.skills()),
+            system: crate::prompt::system_prompt(&self.inner.sandbox.info(), &self.inner.tools, &self.skills(), &self.mcp_servers()),
             thinking: live.info.thinking.unwrap_or(self.settings().thinking),
             workspace: Some(self.inner.sandbox.workspace_dir()),
             window: self.window_for(&choice),

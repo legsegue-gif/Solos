@@ -76,9 +76,17 @@ pub trait Tool: Send + Sync {
     async fn call(&self, ctx: &ToolContext, input: &Value) -> ToolOutput;
 }
 
+/// Tools that come and go while the engine runs: those of MCP servers.
+/// Asked again for every request, so a server added in a turn is usable
+/// on that turn's next round.
+pub trait ToolSource: Send + Sync {
+    fn tools(&self) -> Vec<Arc<dyn Tool>>;
+}
+
 #[derive(Clone, Default)]
 pub struct Registry {
     tools: BTreeMap<String, Arc<dyn Tool>>,
+    sources: Vec<Arc<dyn ToolSource>>,
 }
 
 impl Registry {
@@ -104,12 +112,28 @@ impl Registry {
         self.tools.insert(tool.spec().name, tool);
     }
 
+    pub fn add_source(&mut self, source: Arc<dyn ToolSource>) {
+        self.sources.push(source);
+    }
+
+    /// A fixed tool, or else one of a source's; a source's tool never
+    /// shadows a fixed one.
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.get(name).cloned()
+        self.tools
+            .get(name)
+            .cloned()
+            .or_else(|| self.sources.iter().flat_map(|s| s.tools()).find(|t| t.spec().name == name))
     }
 
     pub fn specs(&self) -> Vec<ToolSpec> {
-        self.tools.values().map(|t| t.spec()).collect()
+        let mut specs: Vec<ToolSpec> = self.tools.values().map(|t| t.spec()).collect();
+        for t in self.sources.iter().flat_map(|s| s.tools()) {
+            let spec = t.spec();
+            if !self.tools.contains_key(&spec.name) && !specs.iter().any(|s| s.name == spec.name) {
+                specs.push(spec);
+            }
+        }
+        specs
     }
 }
 

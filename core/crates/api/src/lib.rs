@@ -93,6 +93,42 @@ pub struct Skill {
     pub enabled: bool,
 }
 
+/// An MCP server: over HTTP when `url` is set, otherwise a `command` run in
+/// the Linux system that speaks MCP on its stdin and stdout.
+#[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct McpServer {
+    /// What it is called in the config; its tools are `mcp_<name>_<tool>`.
+    pub name: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    pub enabled: bool,
+    /// Its tools, as it listed them when last connected.
+    #[serde(default)]
+    pub tools: Vec<McpTool>,
+    /// Why the last attempt to connect failed, in the server's own words;
+    /// `None` once one has worked.
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct McpTool {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    /// The tool's input schema, as JSON.
+    #[serde(default)]
+    pub input_schema: String,
+}
+
 /// How long a source took to answer; `None` when it failed or took too long.
 #[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct MirrorSpeed {
@@ -374,6 +410,14 @@ pub enum CoreError {
     NoSingleSkill { source_text: String, candidates: Vec<String> },
     #[error("no skill in folder {folder}")]
     NoSuchSkill { folder: String },
+    /// Not an MCP server entry (`command` or `url`), nor `mcpServers` of them.
+    #[error("not an MCP server configuration: {detail}")]
+    NotAnMcpConfig { detail: String },
+    #[error("no MCP server named {name}")]
+    NoSuchMcpServer { name: String },
+    /// The server could not be started or reached, or did not speak MCP.
+    #[error("MCP server {name}: {detail}")]
+    McpServerFailed { name: String, detail: String },
     #[error("storage: {detail}")]
     Storage { detail: String },
     #[error("malformed response: {detail}")]

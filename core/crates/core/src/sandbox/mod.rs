@@ -67,6 +67,76 @@ pub trait Terminal: Send + Sync {
 /// Receives output as it is produced, for live display.
 pub type OutputSink = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// A long-running process with piped stdin and stdout, such as an MCP
+/// server: what it reads is written in order, what it prints arrives in
+/// chunks, and its stdout ending means it has ended.
+pub struct Process {
+    pub stdin: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    pub stdout: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    /// The end of what it wrote to stderr, for saying why it failed.
+    pub stderr: Arc<std::sync::Mutex<String>>,
+    /// Ends it and everything it started.
+    pub kill: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl Process {
+    /// How much of stderr is kept.
+    pub const STDERR_TAIL: usize = 4_000;
+
+    /// A process from its three blocking pipes. Each is served by a thread
+    /// of its own, since a server lives for as long as the engine does.
+    pub fn from_pipes(
+        mut stdin: impl std::io::Write + Send + 'static,
+        mut stdout: impl std::io::Read + Send + 'static,
+        mut stderr: impl std::io::Read + Send + 'static,
+        kill: Arc<dyn Fn() + Send + Sync>,
+    ) -> Self {
+        let (in_tx, mut in_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            while let Some(bytes) = in_rx.blocking_recv() {
+                if stdin.write_all(&bytes).and_then(|_| stdin.flush()).is_err() {
+                    break;
+                }
+            }
+        });
+        let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel();
+        std::thread::spawn(move || {
+            let mut buf = vec![0u8; 16 * 1024];
+            while let Ok(n @ 1..) = stdout.read(&mut buf) {
+                if out_tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let tail = Arc::new(std::sync::Mutex::new(String::new()));
+        let t = tail.clone();
+        std::thread::spawn(move || {
+            let mut buf = vec![0u8; 4096];
+            while let Ok(n @ 1..) = stderr.read(&mut buf) {
+                let mut s = t.lock().unwrap();
+                s.push_str(&String::from_utf8_lossy(&buf[..n]));
+                if s.len() > Self::STDERR_TAIL * 2 {
+                    let mut cut = s.len() - Self::STDERR_TAIL;
+                    while !s.is_char_boundary(cut) {
+                        cut += 1;
+                    }
+                    s.drain(..cut);
+                }
+            }
+        });
+        Self { stdin: in_tx, stdout: out_rx, stderr: tail, kill }
+    }
+
+    pub fn stderr_tail(&self) -> String {
+        let s = self.stderr.lock().unwrap();
+        let mut cut = s.len().saturating_sub(Self::STDERR_TAIL);
+        while !s.is_char_boundary(cut) {
+            cut += 1;
+        }
+        s[cut..].to_string()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SandboxInfo {
     /// For the system prompt: what kind of machine the model is on.
@@ -105,6 +175,14 @@ pub trait Sandbox: Send + Sync {
     ) -> Result<Arc<dyn Terminal>, SandboxError> {
         let _ = (rows, cols, output, exited);
         Err(SandboxError::Unavailable("this sandbox has no terminal".into()))
+    }
+
+    /// Start `command` (a shell command line) as a long-running process
+    /// in `cwd`, with `env` after the sandbox's own variables. Sandboxes
+    /// that cannot keep one say so.
+    async fn spawn(&self, command: String, cwd: String, env: Vec<(String, String)>) -> Result<Process, SandboxError> {
+        let _ = (command, cwd, env);
+        Err(SandboxError::Unavailable("this sandbox cannot keep a process running".into()))
     }
 
     /// Variables every process started from now on gets, after the

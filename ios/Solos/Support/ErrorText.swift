@@ -53,6 +53,12 @@ extension CoreError {
                 : String(localized: "This repository holds \(String(candidates.count)) skills. Choose one below.")
         case .NoSuchSkill(let folder):
             return String(localized: "There is no skill in the folder \(folder).")
+        case .NotAnMcpConfig(let detail):
+            return String(localized: "Not an MCP server configuration: \(detail)")
+        case .NoSuchMcpServer(let name):
+            return String(localized: "There is no MCP server named \(name).")
+        case .McpServerFailed(let name, let detail):
+            return String(localized: "The MCP server \(name) did not start: \(detail)")
         case .Storage(let detail):
             return String(localized: "Could not save: \(detail)")
         case .Protocol(let detail):

@@ -9,7 +9,7 @@
 
 use crate::sandbox::SandboxInfo;
 
-pub fn system_prompt(sandbox: &SandboxInfo, tools: &crate::tools::Registry, skills: &[solos_api::Skill]) -> String {
+pub fn system_prompt(sandbox: &SandboxInfo, tools: &crate::tools::Registry, skills: &[solos_api::Skill], mcp: &[solos_api::McpServer]) -> String {
     let mut out = format!(
         "You are Solos, a personal AI agent running on the user's own device. \
 You can run commands in a Linux sandbox on the device. Do the work the user asks for, check the result, and report plainly. \
@@ -32,6 +32,9 @@ Files the user attaches are copied into /solos/ws/attachments.
     }
     if tools.get("skill_install").is_some() {
         out.push_str(&crate::skills::prompt_section(skills));
+    }
+    if tools.get("mcp_add").is_some() {
+        out.push_str(&crate::mcp::prompt_section(mcp));
     }
     out
 }
@@ -74,17 +77,17 @@ mod tests {
     #[test]
     fn the_prompt_is_the_same_every_time_and_carries_the_sandbox_notes() {
         let tools = crate::tools::Registry::builtin();
-        let a = system_prompt(&info("- no curl here"), &tools, &[]);
-        assert_eq!(a, system_prompt(&info("- no curl here"), &tools, &[]));
+        let a = system_prompt(&info("- no curl here"), &tools, &[], &[]);
+        assert_eq!(a, system_prompt(&info("- no curl here"), &tools, &[], &[]));
         assert!(a.contains("About this sandbox:\n- no curl here\n"));
-        assert!(!system_prompt(&info(""), &tools, &[]).contains("About this sandbox"));
+        assert!(!system_prompt(&info(""), &tools, &[], &[]).contains("About this sandbox"));
         assert!(!a.contains("`browser`"), "no browser tool, no browser guidance");
     }
 
     /// Each of these was missing once and the model failed visibly for it.
     #[test]
     fn the_guidance_keeps_what_was_learned() {
-        let p = system_prompt(&info(""), &crate::tools::Registry::builtin(), &[]);
+        let p = system_prompt(&info(""), &crate::tools::Registry::builtin(), &[], &[]);
         for must in [
             "![what it shows](solos://ws/chart.png)",
             "![the clip](solos://ws/clip.mp4)",

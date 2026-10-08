@@ -3983,6 +3983,262 @@
           }
         }
       }
+    },
+    "No MCP servers yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有 MCP 服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有 MCP 伺服器。"
+          }
+        }
+      }
+    },
+    "An MCP server gives the model more tools. Paste the mcpServers JSON from the server's README, or ask in a chat: “add this MCP server: <link>”. A server's command (npx, uvx …) runs in the Linux system, which needs what it uses installed (apk add nodejs npm).": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 服务器为模型提供更多工具。粘贴服务器 README 中的 mcpServers JSON，或在对话里说：“添加这个 MCP 服务器：<链接>”。服务器的命令（npx、uvx 等）在 Linux 系统中运行，需要先安装它用到的程序（apk add nodejs npm）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 伺服器為模型提供更多工具。貼上伺服器 README 中的 mcpServers JSON，或在對話裡說：「新增這個 MCP 伺服器：<連結>」。伺服器的指令（npx、uvx 等）在 Linux 系統中執行，需要先安裝它用到的程式（apk add nodejs npm）。"
+          }
+        }
+      }
+    },
+    "MCP servers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 伺服器"
+          }
+        }
+      }
+    },
+    "Add MCP server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加 MCP 服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增 MCP 伺服器"
+          }
+        }
+      }
+    },
+    "1 tool": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 個工具"
+          }
+        }
+      }
+    },
+    "%lld tools": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個工具"
+          }
+        }
+      }
+    },
+    "For example: {\"mcpServers\": {\"12306-mcp\": {\"command\": \"npx\", \"args\": [\"-y\", \"12306-mcp\"]}}}. Starting a server for the first time can take a few minutes.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如：{\"mcpServers\": {\"12306-mcp\": {\"command\": \"npx\", \"args\": [\"-y\", \"12306-mcp\"]}}}。首次启动服务器可能需要几分钟。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如：{\"mcpServers\": {\"12306-mcp\": {\"command\": \"npx\", \"args\": [\"-y\", \"12306-mcp\"]}}}。首次啟動伺服器可能需要幾分鐘。"
+          }
+        }
+      }
+    },
+    "Added, but could not start": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加，但未能启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增，但未能啟動"
+          }
+        }
+      }
+    },
+    "Environment": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "环境变量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "環境變數"
+          }
+        }
+      }
+    },
+    "Headers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標頭"
+          }
+        }
+      }
+    },
+    "Connect again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新連線"
+          }
+        }
+      }
+    },
+    "No tools listed yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有列出工具。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有列出工具。"
+          }
+        }
+      }
+    },
+    "Delete the MCP server “%@”?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除 MCP 服务器“%@”？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除 MCP 伺服器「%@」？"
+          }
+        }
+      }
+    },
+    "Not an MCP server configuration: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是 MCP 服务器配置：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是 MCP 伺服器設定：%@"
+          }
+        }
+      }
+    },
+    "There is no MCP server named %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有名为 %@ 的 MCP 服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有名為 %@ 的 MCP 伺服器。"
+          }
+        }
+      }
+    },
+    "The MCP server %@ did not start: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 服务器 %1$@ 未能启动：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 伺服器 %1$@ 未能啟動：%2$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

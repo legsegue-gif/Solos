@@ -8,6 +8,7 @@ pub mod bridge;
 pub mod context;
 pub mod engine;
 pub mod files;
+pub mod mcp;
 pub mod mirrors;
 pub mod prompt;
 pub mod skills;

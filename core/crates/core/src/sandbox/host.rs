@@ -66,6 +66,33 @@ impl Sandbox for HostSandbox {
         *self.guest_env.lock().unwrap() = env;
     }
 
+    async fn spawn(&self, command: String, cwd: String, env: Vec<(String, String)>) -> Result<super::Process, SandboxError> {
+        use std::os::unix::process::CommandExt;
+        self.boot().await?;
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(format!("exec {}", self.rewrite(&command)))
+            .current_dir(self.host_path(&cwd))
+            .envs(self.guest_env.lock().unwrap().iter().cloned())
+            .envs(env)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .map_err(|e| SandboxError::Spawn(e.to_string()))?;
+        let (stdin, stdout, stderr) = (child.stdin.take().expect("piped"), child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
+        let pid = child.id();
+        // Reaped when it ends, so it does not linger as a zombie.
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        let kill = Arc::new(move || {
+            let _ = std::process::Command::new("kill").args(["-KILL", "--", &format!("-{pid}")]).stderr(Stdio::null()).status();
+        });
+        Ok(super::Process::from_pipes(stdin, stdout, stderr, kill))
+    }
+
     fn info(&self) -> SandboxInfo {
         SandboxInfo {
             description: format!("the host's shell ({}), standing in for the device sandbox", std::env::consts::OS),

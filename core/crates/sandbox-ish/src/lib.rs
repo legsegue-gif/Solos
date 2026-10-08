@@ -26,6 +26,33 @@ const GUEST_ENV: &[&str] = &[
     "LANG=C.UTF-8",
 ];
 
+/// iSH starts every `node` with `--jitless`, which leaves no WebAssembly,
+/// and `--require`s these two files when they exist: a stand-in for the
+/// WebAssembly HTTP parser undici loads, and a `fetch` over Node's own
+/// `http`. iSH's app lays them over its system (`RootfsPatch.bundle`); ours
+/// is plain Alpine, so they are written at every boot. Without them `fetch`
+/// throws "WebAssembly is not defined", and with it every npm MCP server
+/// that uses it.
+const NODE_POLYFILLS: [(&str, &str); 2] = [
+    ("/lib/wasm-polyfill.js", include_str!("../../../../deps/ish/app/RootfsPatch.bundle/files/lib/wasm-polyfill.js")),
+    ("/lib/fetch-polyfill.js", include_str!("../../../../deps/ish/app/RootfsPatch.bundle/files/lib/fetch-polyfill.js")),
+];
+
+/// The fetch polyfill's headers, made to answer as real `fetch`'s do:
+/// `get("set-cookie")` joins the cookies into one string, and
+/// `getSetCookie()` lists them (12306-mcp reads its cookies that way and
+/// failed without it, in the reference app too).
+fn node_polyfill(path: &str, content: &str) -> String {
+    if path != "/lib/fetch-polyfill.js" {
+        return content.to_string();
+    }
+    content.replacen(
+        "          get: k => h[k.toLowerCase()] || null,\n",
+        "          get: k => { const v = h[k.toLowerCase()]; return v == null ? null : Array.isArray(v) ? v.join(\", \") : v; },\n          getSetCookie: () => [].concat(h[\"set-cookie\"] || []),\n",
+        1,
+    )
+}
+
 pub struct IshSandbox {
     /// The rootfs zip shipped in the app bundle.
     bundled_rootfs: PathBuf,
@@ -53,7 +80,7 @@ impl IshSandbox {
             exits: Arc::new(ExitRegistry::default()),
             ptys: Arc::new(PtyRoutes::default()),
             guest_env: Default::default(),
-            boot_files: Default::default(),
+            boot_files: std::sync::Mutex::new(NODE_POLYFILLS.iter().map(|(p, c)| (p.to_string(), node_polyfill(p, c))).collect()),
             fresh: Default::default(),
         }
     }
@@ -187,6 +214,29 @@ impl Sandbox for IshSandbox {
 
     fn set_guest_env(&self, env: Vec<(String, String)>) {
         *self.guest_env.lock().unwrap() = env.into_iter().map(|(k, v)| format!("{k}={v}")).collect();
+    }
+
+    async fn spawn(&self, command: String, cwd: String, env: Vec<(String, String)>) -> Result<solos_core::sandbox::Process, SandboxError> {
+        self.boot().await?;
+        let script = format!("cd '{}' 2>/dev/null || cd /root\nexec {command}", cwd.replace('\'', "'\\''"));
+        let mut envp = self.base_env();
+        envp.extend(env.iter().map(|(k, v)| format!("{k}={v}")));
+        let argv = vec!["/bin/sh".to_string(), "-c".to_string(), script];
+        let proc = tokio::task::spawn_blocking(move || ffi::spawn("/bin/sh", &argv, &envp))
+            .await
+            .map_err(|e| SandboxError::Spawn(e.to_string()))?
+            .map_err(SandboxError::Spawn)?;
+        // Its exit is taken off the registry when it comes, so a server
+        // that ends leaves nothing behind there.
+        let pid = proc.pid;
+        let exit = self.exits.register(pid);
+        tokio::spawn(async move {
+            let _ = exit.await;
+        });
+        let kill = Arc::new(move || {
+            std::thread::spawn(move || ffi::kill_group(pid));
+        });
+        Ok(solos_core::sandbox::Process::from_pipes(proc.stdin, proc.stdout, proc.stderr, kill))
     }
 
     fn workspace_dir(&self) -> PathBuf {
@@ -514,6 +564,15 @@ impl ExitRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_fetch_polyfill_answers_cookies_as_fetch_does() {
+        let (path, content) = NODE_POLYFILLS[1];
+        let patched = node_polyfill(path, content);
+        assert!(patched.contains("getSetCookie: () =>"), "the polyfill changed upstream; patch it again");
+        assert!(patched.contains("v.join(\", \")"));
+        assert_eq!(node_polyfill(NODE_POLYFILLS[0].0, NODE_POLYFILLS[0].1), NODE_POLYFILLS[0].1);
+    }
 
     #[test]
     fn wait_statuses_read_like_a_shell_reports_them() {

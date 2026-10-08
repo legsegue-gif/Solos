@@ -371,6 +371,29 @@ impl SolosCore {
         self.engine.skill_instructions(folder)
     }
 
+    pub fn mcp_servers(&self) -> Vec<McpServer> {
+        self.engine.mcp_servers()
+    }
+
+    /// Adds servers from pasted `mcpServers` JSON, connecting to each; one
+    /// that cannot be reached is kept with its error.
+    pub async fn add_mcp_servers(&self, json: String) -> Result<Vec<McpServer>, CoreError> {
+        self.run(|e| async move { e.add_mcp_servers(json).await }).await
+    }
+
+    pub async fn remove_mcp_server(&self, name: String) -> Result<(), CoreError> {
+        self.run(|e| async move { e.remove_mcp_server(name).await }).await
+    }
+
+    pub async fn set_mcp_server_enabled(&self, name: String, enabled: bool) -> Result<(), CoreError> {
+        self.run(|e| async move { e.set_mcp_server_enabled(name, enabled).await }).await
+    }
+
+    /// Connects again and lists the server's tools afresh.
+    pub async fn refresh_mcp_server(&self, name: String) -> Result<McpServer, CoreError> {
+        self.run(|e| async move { e.refresh_mcp_server(name).await }).await
+    }
+
     /// Deletes the browser tool's saved pages and screenshots; returns the
     /// bytes freed.
     pub async fn clear_temporary_files(&self) -> Result<u64, CoreError> {
