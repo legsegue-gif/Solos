@@ -50,6 +50,11 @@ pub trait BrowserHost: Send + Sync {
 pub trait DeviceHost: Send + Sync {
     fn capabilities(&self) -> Vec<String>;
     fn call(&self, capability: String, input_json: String) -> String;
+    /// Ask the person whether the assistant may read this kind of data;
+    /// `capability` names the tool that wants to (`device_calendar`). Called on
+    /// a core thread that may block while the question is on screen. `None`:
+    /// the person cannot be asked just now (the app is not on screen).
+    fn consent(&self, kind: ConsentKind, capability: String) -> Option<bool>;
 }
 
 struct Device(Arc<dyn DeviceHost>);
@@ -60,6 +65,9 @@ impl solos_core::tools::device::DeviceBridge for Device {
     fn call(&self, capability: &str, input: serde_json::Value) -> serde_json::Value {
         let reply = self.0.call(capability.to_string(), input.to_string());
         serde_json::from_str(&reply).unwrap_or_else(|e| serde_json::json!({"error": format!("the device answered malformed JSON: {e}")}))
+    }
+    fn consent(&self, kind: ConsentKind, capability: &str) -> Option<bool> {
+        self.0.consent(kind, capability.to_string())
     }
 }
 
@@ -207,6 +215,17 @@ impl SolosCore {
     /// this device. Path arithmetic; a link inside a shared folder is looked at.
     pub fn resolve_file(&self, reference: String) -> Option<String> {
         self.engine.resolve_file(&reference).map(|p| p.to_string_lossy().into_owned())
+    }
+
+    /// What the person agreed to let the assistant read from the device.
+    pub fn consents(&self) -> Consents {
+        self.engine.consents()
+    }
+
+    /// Change an answer (Settings): `Some(true)` allows, `Some(false)`
+    /// refuses, `None` asks again at the next use.
+    pub fn set_consent(&self, kind: ConsentKind, answer: Option<bool>) {
+        self.engine.set_consent(kind, answer)
     }
 
     /// The folders the user shares with the model.

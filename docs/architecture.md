@@ -152,6 +152,13 @@ loop:
   and writes the history's tool rounds as text (`context::without_tool_rounds`),
   because endpoints refuse tool blocks when no tools are declared. The stored
   transcript is unchanged, so switching back on restores it.
+- **Consent** (`consent`): `device_calendar`, `_reminders`, `_contacts`, `_location`,
+  `_photos`, `_clipboard` ask the person once (`Personal`), `device_health` once on its own
+  (`Health`), through `DeviceBridge::consent` (an alert on whatever is on screen; `None` when
+  the app is not on screen, which is not kept as an answer). Answers live in the `consents`
+  setting. The system's own refusal ("Access to X is denied") is rewritten for the model as
+  final (`consent::system_refusal`), because told only "denied" it retried the same call a
+  dozen times until the loop guard stopped it.
 - **Commit before the next request.** An interrupted turn always leaves a
   transcript that can be sent back as is.
 - **Streaming**: an idle timeout ends a silent stream; cancellation is

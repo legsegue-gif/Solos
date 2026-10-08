@@ -57,6 +57,13 @@ visible anywhere else), media playback control, health (read), weather,
 maps (search / route / ETA), vision (OCR / classify), natural language,
 open URL / app, device info.
 
+### Privacy
+- Before the first time the assistant reads a person's own data (calendar, reminders,
+  contacts, location, photos, clipboard), they are asked once, naming that what it reads goes
+  to the model service they chose; health data is asked separately. The answers are kept and
+  changed in Settings > Privacy. A no stays a no; the model is told not to retry and where
+  to change it.
+
 ### Skills
 - A skill is a folder with a `SKILL.md` (a `name` and a `description` at the
   top, instructions below) and whatever scripts and files it needs, in the

@@ -89,6 +89,8 @@ pub struct Registry {
     sources: Vec<Arc<dyn ToolSource>>,
     /// The folders the user shares; the file tools read it.
     mounts: Arc<crate::mounts::Mounts>,
+    /// What the person agreed to let the device tools read.
+    consents: Arc<crate::consent::Consents>,
 }
 
 impl Registry {
@@ -109,6 +111,11 @@ impl Registry {
         }
         r.add_source(Arc::new(crate::mounts::MountTools(r.mounts.clone())));
         r
+    }
+
+    /// The answers to "may the assistant read your ...", for the device tools.
+    pub fn consents(&self) -> Arc<crate::consent::Consents> {
+        self.consents.clone()
     }
 
     /// The table of shared folders the tools of this registry use.

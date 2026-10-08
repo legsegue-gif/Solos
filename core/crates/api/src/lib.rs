@@ -65,6 +65,24 @@ pub struct Mount {
     pub writable: bool,
 }
 
+/// What the assistant asks to read from the device: a person's own data,
+/// which goes to the model service they chose.
+#[derive(uniffi::Enum, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsentKind {
+    /// Calendar, reminders, contacts, location, photos, the clipboard.
+    Personal,
+    Health,
+}
+
+/// The answers given: `None` is not asked yet, `Some(false)` is a no that
+/// stays until the person changes it.
+#[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct Consents {
+    pub personal: Option<bool>,
+    pub health: Option<bool>,
+}
+
 /// A model on a particular endpoint.
 #[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModelChoice {

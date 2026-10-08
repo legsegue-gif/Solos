@@ -333,22 +333,6 @@
         }
       }
     },
-    "%@ The key is kept in the Keychain.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@密钥保存在钥匙串中。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@金鑰儲存在鑰匙串中。"
-          }
-        }
-      }
-    },
     "%@%@": {
       "localizations": {
         "en": {
@@ -3628,6 +3612,294 @@
           "stringUnit": {
             "state": "translated",
             "value": "檔案只能放進工作區（/solos/ws）或允許修改的共享資料夾。"
+          }
+        }
+      }
+    },
+    "Don't Allow": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不允許"
+          }
+        }
+      }
+    },
+    "Allow": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許"
+          }
+        }
+      }
+    },
+    "Allow access to your health data?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许访问你的健康数据？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許存取你的健康資料？"
+          }
+        }
+      }
+    },
+    "The assistant wants to use your health data. What it reads becomes part of the conversation and is sent to the AI service you chose in Settings, not to Solos. Allow this only if you trust that service with health data. Solos never uses health data for advertising. You can change this in Settings > Privacy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手想使用你的健康数据。它读到的内容会成为对话的一部分，并发送给你在设置里选择的 AI 服务，而不是发给 Solos。只有当你信任该服务处理健康数据时才允许。Solos 绝不会把健康数据用于广告。你可以在“设置 > 隐私”里更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手想使用你的健康資料。它讀到的內容會成為對話的一部分，並傳送給你在設定裡選擇的 AI 服務，而不是傳給 Solos。只有當你信任該服務處理健康資料時才允許。Solos 絕不會把健康資料用於廣告。你可以在「設定 > 隱私權」裡更改。"
+          }
+        }
+      }
+    },
+    "your calendar": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的日历"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的日曆"
+          }
+        }
+      }
+    },
+    "your reminders": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的提醒事项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的提醒事項"
+          }
+        }
+      }
+    },
+    "your contacts": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的通讯录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的聯絡人"
+          }
+        }
+      }
+    },
+    "your location": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的位置"
+          }
+        }
+      }
+    },
+    "your photos": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的照片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的照片"
+          }
+        }
+      }
+    },
+    "your clipboard": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的剪貼簿"
+          }
+        }
+      }
+    },
+    "your personal data": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的个人数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的個人資料"
+          }
+        }
+      }
+    },
+    "Allow access to %@?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许访问%@？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許存取%@？"
+          }
+        }
+      }
+    },
+    "The assistant wants to read %@. What it reads becomes part of the conversation and is sent to the AI service you chose in Settings, not to Solos. This also covers your calendar, reminders, contacts, location, photos and clipboard. You can change this in Settings > Privacy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手想读取%@。它读到的内容会成为对话的一部分，并发送给你在设置里选择的 AI 服务，而不是发给 Solos。这也包括你的日历、提醒事项、通讯录、位置、照片和剪贴板。你可以在“设置 > 隐私”里更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手想讀取%@。它讀到的內容會成為對話的一部分，並傳送給你在設定裡選擇的 AI 服務，而不是傳給 Solos。這也包括你的日曆、提醒事項、聯絡人、位置、照片和剪貼簿。你可以在「設定 > 隱私權」裡更改。"
+          }
+        }
+      }
+    },
+    "Personal data": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个人数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個人資料"
+          }
+        }
+      }
+    },
+    "Health data": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "健康数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "健康資料"
+          }
+        }
+      }
+    },
+    "Privacy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱私權"
+          }
+        }
+      }
+    },
+    "Whether the assistant may read your calendar, reminders, contacts, location, photos and clipboard, and separately your health data. What it reads is sent to the AI service you chose. Off asks you the first time it is needed.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手能否读取你的日历、提醒事项、通讯录、位置、照片和剪贴板，以及单独的健康数据。它读到的内容会发送给你选择的 AI 服务。关闭时，第一次需要时会询问你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手能否讀取你的日曆、提醒事項、聯絡人、位置、照片和剪貼簿，以及單獨的健康資料。它讀到的內容會傳送給你選擇的 AI 服務。關閉時，第一次需要時會詢問你。"
+          }
+        }
+      }
+    },
+    "%@ The key is kept in the Keychain. Everything you send in a chat (messages, attachments and what the assistant reads on your device) goes to this service; see its privacy policy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 密钥保存在钥匙串里。你在对话里发送的一切（消息、附件，以及助手在你设备上读到的内容）都会发给这个服务，请参阅它的隐私政策。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 金鑰保存在鑰匙圈裡。你在對話裡傳送的一切（訊息、附件，以及助手在你裝置上讀到的內容）都會傳給這個服務，請參閱它的隱私權政策。"
           }
         }
       }

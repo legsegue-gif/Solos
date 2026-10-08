@@ -5,6 +5,7 @@
 
 pub mod agent;
 pub mod bridge;
+pub mod consent;
 pub mod context;
 pub mod engine;
 pub mod files;

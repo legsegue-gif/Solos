@@ -1,8 +1,11 @@
 //! Device capabilities as first-class tools.
 //!
-//! There is no app-level confirmation before a call: the reference app has
-//! none, and the system's own permission prompts still stand in front of
-//! every framework.
+//! The system's own permission prompts stand in front of every framework. On
+//! top of them, the tools that read a person's own data (calendar, reminders,
+//! contacts, location, photos, the clipboard, health) ask once whether the
+//! assistant may, because what it reads goes to the model service the person
+//! chose (`consent`). The reference app asks nothing; this is the App Store's
+//! rule about sharing personal data with a third-party AI, not a measurement.
 //!
 //! The schemas live here so both platforms present the model an identical
 //! surface, and so the harness can gate, render and audit each action by its
@@ -43,6 +46,13 @@ pub trait DeviceBridge: Send + Sync {
     /// back in `files`; the core turns those into `solos://` URLs the model
     /// and the sandbox can both use.
     fn call(&self, capability: &str, input: Value) -> Value;
+
+    /// Ask the person whether the assistant may read this kind of data,
+    /// naming the tool that wants to (`device_calendar`). Returns the answer,
+    /// or `None` when the person cannot be asked just now (the app is not on
+    /// screen). Called on a core thread that may block while the question is
+    /// on screen.
+    fn consent(&self, kind: solos_api::ConsentKind, capability: &str) -> Option<bool>;
 }
 
 /// Every capability the core knows how to describe. A platform picks the
@@ -76,6 +86,7 @@ pub fn register(registry: &mut Registry, bridge: Arc<dyn DeviceBridge>) {
             registry.add(Arc::new(DeviceTool {
                 spec,
                 bridge: bridge.clone(),
+                consents: registry.consents(),
             }));
         }
     }
@@ -84,6 +95,7 @@ pub fn register(registry: &mut Registry, bridge: Arc<dyn DeviceBridge>) {
 struct DeviceTool {
     spec: ToolSpec,
     bridge: Arc<dyn DeviceBridge>,
+    consents: Arc<crate::consent::Consents>,
 }
 
 #[async_trait]
@@ -95,6 +107,14 @@ impl Tool for DeviceTool {
     async fn call(&self, ctx: &ToolCtx, input: &Value) -> ToolOutput {
         let bridge = self.bridge.clone();
         let name = self.spec.name.clone();
+        if let Some(kind) = crate::consent::kind_of_tool(&name) {
+            let (asker, tool) = (bridge.clone(), name.clone());
+            match self.consents.allowed(kind, move || asker.consent(kind, &tool)).await {
+                Some(true) => {}
+                Some(false) => return ToolOutput::error(crate::consent::refusal(kind)),
+                None => return ToolOutput::error(crate::consent::unasked(kind)),
+            }
+        }
         // Somewhere to put anything this call produces (an exported photo):
         // the workspace's attachments folder, which the guest sees as
         // /solos/ws/attachments, so a script can read it at once.
@@ -131,7 +151,7 @@ impl Tool for DeviceTool {
             _ = ctx.cancel.cancelled() => return ToolOutput::error("Stopped by the user."),
         };
         if let Some(error) = value.get("error").and_then(Value::as_str) {
-            return ToolOutput::error(error.to_string());
+            return ToolOutput::error(crate::consent::system_refusal(error).unwrap_or_else(|| error.to_string()));
         }
         // Files the call wrote (an exported photo), by the address the user
         // can open and a script can pass on, inside the result itself so it
@@ -532,6 +552,9 @@ mod tests {
         available: Vec<String>,
         calls: Mutex<Vec<(String, Value)>>,
         reply: Value,
+        /// What the person answers when asked (`None`: could not be asked), and what was asked.
+        answer: Option<bool>,
+        asked: Mutex<Vec<(solos_api::ConsentKind, String)>>,
     }
 
     impl DeviceBridge for FakeBridge {
@@ -541,6 +564,10 @@ mod tests {
         fn call(&self, capability: &str, input: Value) -> Value {
             self.calls.lock().unwrap().push((capability.into(), input));
             self.reply.clone()
+        }
+        fn consent(&self, kind: solos_api::ConsentKind, capability: &str) -> Option<bool> {
+            self.asked.lock().unwrap().push((kind, capability.into()));
+            self.answer
         }
     }
 
@@ -552,7 +579,23 @@ mod tests {
     }
 
     fn bridge(available: &[&str], reply: Value) -> Arc<FakeBridge> {
-        Arc::new(FakeBridge { available: available.iter().map(|s| s.to_string()).collect(), calls: Mutex::new(vec![]), reply })
+        Arc::new(FakeBridge {
+            available: available.iter().map(|s| s.to_string()).collect(),
+            calls: Mutex::new(vec![]),
+            reply,
+            answer: Some(true),
+            asked: Mutex::new(vec![]),
+        })
+    }
+
+    fn bridge_saying(answer: Option<bool>, available: &[&str]) -> Arc<FakeBridge> {
+        Arc::new(FakeBridge {
+            available: available.iter().map(|s| s.to_string()).collect(),
+            calls: Mutex::new(vec![]),
+            reply: json!({"ok": true}),
+            answer,
+            asked: Mutex::new(vec![]),
+        })
     }
 
     #[test]
@@ -595,7 +638,59 @@ mod tests {
         let mut registry = Registry::new();
         register(&mut registry, b);
         let out = registry.get("device_calendar").unwrap().call(&ctx(), &json!({"action": "list"})).await;
-        assert!(out.is_error && out.text == "calendar access denied");
+        assert!(out.is_error && out.text == "calendar access denied", "a failure that is not a refusal keeps its words");
+    }
+
+    #[tokio::test]
+    async fn a_refusal_from_the_system_is_told_to_the_model_as_final() {
+        let b = bridge(&["device_calendar"], json!({"error": "Access to calendar is denied; it can be allowed in Settings."}));
+        let mut registry = Registry::new();
+        register(&mut registry, b);
+        let out = registry.get("device_calendar").unwrap().call(&ctx(), &json!({"action": "list"})).await;
+        assert!(out.is_error && out.text.contains("Do not try again") && out.text.contains("Settings > Solos"), "{}", out.text);
+    }
+
+    #[tokio::test]
+    async fn a_tool_that_reads_the_persons_data_asks_first_and_a_no_stops_it() {
+        use solos_api::ConsentKind;
+        let yes = bridge_saying(Some(true), &["device_calendar", "device_health", "device_weather"]);
+        let mut registry = Registry::new();
+        register(&mut registry, yes.clone());
+        let c = ctx();
+        let cal = registry.get("device_calendar").unwrap();
+        assert!(!cal.call(&c, &json!({"action": "list"})).await.is_error);
+        assert!(!cal.call(&c, &json!({"action": "list"})).await.is_error);
+        assert_eq!(*yes.asked.lock().unwrap(), vec![(ConsentKind::Personal, "device_calendar".to_string())], "asked once, naming the tool");
+        // Health is a question of its own.
+        assert!(!registry.get("device_health").unwrap().call(&c, &json!({"action": "read"})).await.is_error);
+        assert_eq!(yes.asked.lock().unwrap().len(), 2);
+        // Weather reads nothing of the person's: no question.
+        assert!(!registry.get("device_weather").unwrap().call(&c, &json!({})).await.is_error);
+        assert_eq!(yes.asked.lock().unwrap().len(), 2);
+
+        let no = bridge_saying(Some(false), &["device_contacts"]);
+        let mut registry = Registry::new();
+        register(&mut registry, no.clone());
+        let contacts = registry.get("device_contacts").unwrap();
+        let out = contacts.call(&c, &json!({"action": "search", "query": "a"})).await;
+        assert!(out.is_error && out.text.contains("Do not try again") && out.text.contains("Settings > Privacy"), "{}", out.text);
+        assert!(no.calls.lock().unwrap().is_empty(), "the platform was never called");
+        let again = contacts.call(&c, &json!({"action": "search", "query": "a"})).await;
+        assert!(again.is_error);
+        assert_eq!(no.asked.lock().unwrap().len(), 1, "a no is not asked again");
+        // Changed in Settings, the same tool now works.
+        registry.consents().set(ConsentKind::Personal, Some(true));
+        assert!(!contacts.call(&c, &json!({"action": "search", "query": "a"})).await.is_error);
+
+        // The person cannot be asked (the app is in the background): the call
+        // is refused, with its own words, and nothing is kept.
+        let away = bridge_saying(None, &["device_photos"]);
+        let mut registry = Registry::new();
+        register(&mut registry, away.clone());
+        let out = registry.get("device_photos").unwrap().call(&c, &json!({"action": "list"})).await;
+        assert!(out.is_error && out.text.contains("could not be asked just now"), "{}", out.text);
+        assert_eq!(registry.consents().get(), solos_api::Consents::default());
+        assert!(away.calls.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -639,6 +734,9 @@ mod tests {
             fn call(&self, _: &str, _: Value) -> Value {
                 std::thread::sleep(std::time::Duration::from_secs(5));
                 json!({})
+            }
+            fn consent(&self, _: solos_api::ConsentKind, _: &str) -> Option<bool> {
+                Some(true)
             }
         }
         let mut registry = Registry::new();

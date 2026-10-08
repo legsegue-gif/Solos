@@ -16,6 +16,9 @@ struct SettingsView: View {
     @State private var mirrors: [PackageMirror] = []
     /// Read again whenever Settings shows, since it is changed on its page.
     @State private var skillCount = 0
+    /// What was answered to "may the assistant read your ...". Read again
+    /// whenever Settings shows: the question can be answered in a chat.
+    @State private var consents = Consents(personal: nil, health: nil)
     @State private var mcpCount = 0
 
     var body: some View {
@@ -83,6 +86,7 @@ struct SettingsView: View {
                 // what is set, and opens the browser's own settings.
                 // Grouped as the home screen's buttons are: files, browser, and
                 // the package mirrors the terminal and the model install from.
+                privacySection
                 filesSection
                 Section {
                     NavigationLink { BrowserSettingsView() } label: {
@@ -114,6 +118,7 @@ struct SettingsView: View {
             .onAppear {
                 browserAgent = BrowserPrefs.agent
                 mirrors = app.core?.chosenPackageMirrors() ?? []
+                consents = app.core?.consents() ?? consents
                 skillCount = app.core?.skills().count ?? 0
                 mcpCount = app.core?.mcpServers().count ?? 0
             }
@@ -131,6 +136,30 @@ struct SettingsView: View {
     /// The room things take, the workspace behind the files button, and
     /// the one thing here that can be thrown away. A sandbox that did not
     /// start says why, at the top.
+    /// What the assistant may read from the device. A switch is on only after
+    /// "Allow"; "Don't Allow" leaves it off, and the assistant asks nothing more
+    /// until it is turned on here. Off and not asked yet look the same: the
+    /// question comes the first time it is needed.
+    @ViewBuilder private var privacySection: some View {
+        Section {
+            Toggle(String(localized: "Personal data"), isOn: consentBinding(.personal, consents.personal))
+            Toggle(String(localized: "Health data"), isOn: consentBinding(.health, consents.health))
+        } header: {
+            Text("Privacy")
+        } footer: {
+            Text("Whether the assistant may read your calendar, reminders, contacts, location, photos and clipboard, and separately your health data. What it reads is sent to the AI service you chose. Off asks you the first time it is needed.")
+        }
+    }
+
+    private func consentBinding(_ kind: ConsentKind, _ current: Bool?) -> Binding<Bool> {
+        Binding(
+            get: { current == true },
+            set: { on in
+                app.core?.setConsent(kind: kind, answer: on)
+                consents = app.core?.consents() ?? consents
+            })
+    }
+
     @ViewBuilder private var filesSection: some View {
         Section {
             if let error = sandbox?.error {
@@ -288,7 +317,7 @@ struct EndpointEditor: View {
                         .accessibilityLabel(showKey ? String(localized: "Hide key") : String(localized: "Show key"))
                     }
                 } footer: {
-                    Text("\(endpoint.protocol.addressHelp) The key is kept in the Keychain.")
+                    Text("\(endpoint.protocol.addressHelp) The key is kept in the Keychain. Everything you send in a chat (messages, attachments and what the assistant reads on your device) goes to this service; see its privacy policy.")
                 }
                 Section {
                     Toggle(String(localized: "Enabled"), isOn: $endpoint.enabled)

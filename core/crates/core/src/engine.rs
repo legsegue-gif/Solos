@@ -146,6 +146,12 @@ impl Engine {
             .map_err(storage)?
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
+        let consents: solos_api::Consents = store
+            .setting("consents")
+            .await
+            .map_err(storage)?
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
         let model_lists: HashMap<String, solos_api::ModelList> = store
             .setting("model_lists")
             .await
@@ -181,6 +187,20 @@ impl Engine {
         let mcp = crate::mcp::Mcp::open(store.clone(), cfg.sandbox.clone(), cfg.secrets.clone()).await?;
         let mut cfg = cfg;
         cfg.tools.add_source(Arc::new(mcp.clone()));
+        // What the person agreed to share is kept: loaded now, and written
+        // whenever it changes, whether by the question or by Settings.
+        cfg.tools.consents().load(consents);
+        {
+            let (store, runtime) = (store.clone(), tokio::runtime::Handle::current());
+            cfg.tools.consents().on_change(Arc::new(move |state| {
+                let store = store.clone();
+                runtime.spawn(async move {
+                    if let Ok(value) = serde_json::to_value(&state) {
+                        let _ = store.put_setting("consents", value).await;
+                    }
+                });
+            }));
+        }
         cfg.tools.add(Arc::new(crate::mcp::McpAdd(mcp.clone())));
         // The tools, for scripts in the sandbox (`solos`). Without it the
         // model still has every tool, so a failure is logged, not fatal.
@@ -460,6 +480,17 @@ impl Engine {
             None => crate::sandbox::GUEST_WORKSPACE.to_string(),
         };
         (at.guest != root).then_some(at.host)
+    }
+
+    /// What the person agreed to let the assistant read from the device.
+    pub fn consents(&self) -> Consents {
+        self.inner.tools.consents().get()
+    }
+
+    /// Change an answer from Settings: `Some(true)` allows, `Some(false)`
+    /// refuses, `None` asks again at the next use.
+    pub fn set_consent(&self, kind: ConsentKind, answer: Option<bool>) {
+        self.inner.tools.consents().set(kind, answer);
     }
 
     /// The folders the user shares with the model, as the app last said.
