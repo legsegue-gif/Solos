@@ -258,11 +258,14 @@ trait Sandbox {
   install one, and the skills that are on (name, description, path). It is
   there with no skill installed, so the first install in a chat is done the
   way the app knows about. The prompt changes only when the skills do.
-- Installing from GitHub is the core's own: it takes a link to a repository
-  or to a folder in one, downloads the archive (`codeload.github.com`, no
-  git or curl needed in the guest), picks the folder with the `SKILL.md`
-  (refusing, with the candidates, when a repository holds several), and
-  replaces any earlier copy of that folder at once. The `skill_install` tool
+- Installing from GitHub is the core's own (no git or curl needed in the
+  guest): it takes a link to a repository or to a folder in one, reads the
+  repository's file list (one API request), picks the folder with the
+  `SKILL.md` (refusing, with the candidates, when a repository holds
+  several), downloads only that folder's files (`raw.githubusercontent.com`,
+  in parallel), and replaces any earlier copy of that folder at once. When
+  the list cannot be had (GitHub's limit without a key, a list cut short),
+  it downloads the repository's archive (`codeload.github.com`) instead. The `skill_install` tool
   and Settings call the same function. The tool returns the skill's
   `SKILL.md`, so the model can do what it asks (install packages) in the
   same turn.
