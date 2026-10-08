@@ -24,6 +24,14 @@ const GUEST_ENV: &[&str] = &[
     "SHELL=/bin/sh",
     "TERM=xterm-256color",
     "LANG=C.UTF-8",
+    // Node tries a name's IPv6 address first by default; where there is no
+    // IPv6 route (measured on this Mac's network) the attempt times out in
+    // the emulator and Node often gives up on IPv4 too: 1 of 5 fetches
+    // failed with ETIMEDOUT, against 5 of 5 with IPv4 first. And it gives
+    // each address 250 ms before trying the next, too little here: 12306-mcp
+    // failed to start 1 time in 4 (AggregateError, ETIMEDOUT), and 0 in 4
+    // with 2.5 s.
+    "NODE_OPTIONS=--dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=2500",
 ];
 
 /// iSH starts every `node` with `--jitless`, which leaves no WebAssembly,

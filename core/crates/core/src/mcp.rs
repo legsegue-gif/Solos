@@ -24,8 +24,8 @@ use tokio_util::sync::CancellationToken;
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
 const SETTING: &str = "mcp_servers";
 /// `npx -y` fetches the package first, and the guest is emulated: a first
-/// start can take minutes.
-const STDIO_START: Duration = Duration::from_secs(300);
+/// start took 505 s for 12306-mcp (225 packages) in the simulator.
+const STDIO_START: Duration = Duration::from_secs(900);
 const HTTP_START: Duration = Duration::from_secs(30);
 const CALL: Duration = Duration::from_secs(300);
 /// The same limit as a shell command's output.
@@ -722,7 +722,7 @@ impl Tool for McpAdd {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "mcp_add".into(),
-            description: "Add an MCP server (or replace the one of this name) and connect to it. Give its entry as its README shows it: {\"command\": \"npx\", \"args\": [\"-y\", \"<package>\"]} for one that runs here, or {\"url\": \"https://…\", \"headers\": {…}} for a remote one. A command runs in this Linux system, so install what it needs first. Returns the server's tools, which you call from then on as mcp_<name>_<tool>, or why it could not start.".into(),
+            description: "Add an MCP server (or replace the one of this name) and connect to it. Give its entry as its README shows it: {\"command\": \"npx\", \"args\": [\"-y\", \"<package>\"]} for one that runs here, or {\"url\": \"https://…\", \"headers\": {…}} for a remote one. A command runs in this Linux system, so install what it needs first; the first start of an npx server downloads it and can take ten minutes. Returns the server's tools, which you call from then on as mcp_<name>_<tool>, or why it could not start.".into(),
             schema: object_schema(
                 json!({
                     "name": {"type": "string", "description": "A short name for the server, as in its README's config (the key under mcpServers)."},
