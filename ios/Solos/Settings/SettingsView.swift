@@ -25,11 +25,14 @@ struct SettingsView: View {
                     ForEach(app.settings.endpoints, id: \.id) { ep in
                         Button { editing = ep } label: {
                             VStack(alignment: .leading) {
-                                Text(ep.name).foregroundStyle(.primary)
+                                Text(ep.name).foregroundStyle(ep.enabled ? .primary : .secondary)
                                 Text("\(ep.protocol.label) · \(ep.baseUrl.isEmpty ? ep.protocol.officialHost : ep.baseUrl)")
                                     .font(.caption).foregroundStyle(.secondary)
                                 // The default model is chosen on this endpoint's
                                 // page; shown here so it is visible from the list.
+                                if !ep.enabled {
+                                    Text("Turned off").font(.caption).foregroundStyle(.secondary)
+                                }
                                 if let d = app.settings.defaultModel, d.endpointId == ep.id {
                                     Text("Default: \(d.model)")
                                         .font(.caption).foregroundStyle(.secondary)
@@ -38,16 +41,10 @@ struct SettingsView: View {
                         }
                     }
                     .onDelete { offsets in
-                        var s = app.settings
-                        let removed = offsets.map { s.endpoints[$0] }
-                        s.endpoints.remove(atOffsets: offsets)
-                        if let d = s.defaultModel, removed.contains(where: { $0.id == d.endpointId }) {
-                            s.defaultModel = nil
-                        }
+                        let removed = offsets.map { app.settings.endpoints[$0] }
                         Task {
                             do {
-                                try await app.save(s)
-                                removed.forEach { Keychain.write(EndpointEditor.secretRef(for: $0), "") }
+                                try await app.removeEndpoints(removed)
                                 error = nil
                             } catch let e as CoreError {
                                 error = e
@@ -55,7 +52,7 @@ struct SettingsView: View {
                         }
                     }
                     Button(String(localized: "Add endpoint")) {
-                        editing = Endpoint(id: UUID().uuidString, name: "", protocol: .openAi, baseUrl: "", secretRef: "")
+                        editing = Endpoint(id: UUID().uuidString, name: "", protocol: .openAi, baseUrl: "", secretRef: "", enabled: true)
                     }
                     // One switch for every model: with the endpoints, since it is
                     // about the models, not a setting of its own.
@@ -66,13 +63,20 @@ struct SettingsView: View {
                             s.thinking = on
                             Task { try? await app.save(s) }
                         }))
+                    Toggle(String(localized: "AI Agent Mode"), isOn: Binding(
+                        get: { app.settings.agentMode },
+                        set: { on in
+                            var s = app.settings
+                            s.agentMode = on
+                            Task { try? await app.save(s) }
+                        }))
                 } header: {
                     Text("Endpoints")
                 } footer: {
                     if let error {
                         Text(error.message).foregroundStyle(.red)
                     } else {
-                        Text("Thinking: for new chats, with any model. Each chat can change it from its model menu.")
+                        Text("Thinking and AI Agent Mode: for new chats, with any model. Each chat can change them from its model menu.")
                     }
                 }
                 // Headed and valued like the sections around it: the row says
@@ -235,6 +239,8 @@ struct EndpointEditor: View {
     @State private var chosen: String
     @State private var fetching = false
     @State private var error: CoreError?
+    @State private var showKey = false
+    @State private var confirmingDelete = false
 
     /// The default is read once, here: `onAppear` runs again on coming back
     /// from a model's page and would undo the choice made there.
@@ -259,12 +265,32 @@ struct EndpointEditor: View {
                     .onChange(of: endpoint.protocol) { models = []; chosen = "" }
                     TextField(String(localized: "Address (empty = \(endpoint.protocol.officialHost))"), text: $endpoint.baseUrl)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    SecureField(String(localized: "API key"), text: $key)
+                    HStack {
+                        Group {
+                            if showKey {
+                                TextField(String(localized: "API key"), text: $key).font(.system(.body, design: .monospaced))
+                            } else {
+                                SecureField(String(localized: "API key"), text: $key)
+                            }
+                        }
                         // Not a password: no offer to save it in Passwords.
                         .textContentType(.oneTimeCode)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Button { showKey.toggle() } label: {
+                            Image(systemName: showKey ? "eye.slash" : "eye").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(showKey ? String(localized: "Hide key") : String(localized: "Show key"))
+                    }
                 } footer: {
                     Text("\(endpoint.protocol.addressHelp) The key is kept in the Keychain.")
+                }
+                Section {
+                    Toggle(String(localized: "Enabled"), isOn: $endpoint.enabled)
+                } header: {
+                    Text("Status")
+                } footer: {
+                    Text("Off keeps the endpoint and its key but hides its models from the model menu; chats on it cannot be sent until it is turned on.")
                 }
                 Section {
                     Button {
@@ -293,6 +319,18 @@ struct EndpointEditor: View {
                         Text("Open a model to make it the default or to set its context window.")
                     }
                 }
+                // Only an endpoint that exists: a new one is cancelled instead.
+                if app.settings.endpoints.contains(where: { $0.id == endpoint.id }) {
+                    Section {
+                        Button(String(localized: "Delete Endpoint"), role: .destructive) { confirmingDelete = true }
+                    }
+                }
+            }
+            .alert(String(localized: "Delete Endpoint"), isPresented: $confirmingDelete) {
+                Button(String(localized: "Delete"), role: .destructive) { Task { await delete() } }
+                Button(String(localized: "Cancel"), role: .cancel) {}
+            } message: {
+                Text("This removes the endpoint, its models and its API key. Chats that used it keep their messages and need another model.")
             }
             .navigationTitle(endpoint.name.isEmpty ? String(localized: "Endpoint") : endpoint.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -304,16 +342,23 @@ struct EndpointEditor: View {
                 }
             }
             .task {
-                // A saved endpoint lists its models at once, as the chat's
-                // model menu does; a new one waits for its key.
-                if models.isEmpty, !key.isEmpty, app.settings.endpoints.contains(where: { $0.id == endpoint.id }) {
-                    await fetch()
+                // A saved endpoint shows the models kept from the last fetch,
+                // as the chat's model menu does, and asks again only when
+                // there are none or they are old; a new one waits for its key.
+                guard app.settings.endpoints.contains(where: { $0.id == endpoint.id }) else { return }
+                // Back from a model's page, the list is already here.
+                guard models.isEmpty else { return }
+                if let kept = app.core?.cachedModels(endpointId: endpoint.id) {
+                    models = kept.models
+                    if !kept.stale { return }
                 }
+                if !key.isEmpty { await fetch(quietly: true) }
             }
         }
     }
 
-    private func fetch() async {
+    /// Quietly: a list is already on screen, so a failure is not shown.
+    private func fetch(quietly: Bool = false) async {
         fetching = true
         defer { fetching = false }
         var ep = endpoint
@@ -323,6 +368,15 @@ struct EndpointEditor: View {
             models = try await app.core?.listModels(endpoint: ep) ?? []
             if chosen.isEmpty { chosen = models.first?.id ?? "" }
             error = nil
+        } catch let e as CoreError {
+            if !(quietly && !models.isEmpty) { error = e }
+        } catch {}
+    }
+
+    private func delete() async {
+        do {
+            try await app.removeEndpoints([endpoint])
+            dismiss()
         } catch let e as CoreError {
             error = e
         } catch {}

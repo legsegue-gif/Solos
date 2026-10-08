@@ -13,9 +13,11 @@ side-by-side comparison shows it is the better one.
 
 ### Conversation
 - Multiple providers: OpenAI-compatible (incl. relays), Anthropic, Gemini.
-- Endpoints as a list: each with its own base URL and key; model list fetched
-  from the endpoint; default model; per-session model switch.
+- Endpoints as a list: each with its own base URL and key and an Enabled switch;
+  model list fetched from the endpoint and kept; default model; per-session model switch.
 - Thinking on/off.
+- AI Agent Mode on/off, per chat with a default in Settings (default on). Off is plain chat:
+  the model gets no tools and the sandbox is not started; attachments still work.
 - Streaming replies; stop; resume a turn cut off by the system.
 - Copy, retry, edit-and-resend a message.
 - Rendering: Markdown (code, tables, quotes, lists), math, inline images,
@@ -70,7 +72,7 @@ open URL / app, device info.
 - Settings: list, turn on and off, delete, see each server's tools.
 
 ### Settings
-Endpoints and keys (keys in the Keychain), default model, thinking, browser
+Endpoints and keys (keys in the Keychain), default model, thinking, AI Agent Mode, browser
 preferences, sandbox status, skills, MCP servers.
 
 ## Also in scope

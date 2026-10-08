@@ -147,6 +147,11 @@ loop:
   guard: rounds, repeated identical call-and-result, cancellation
 ```
 
+- **Agent mode** (`TurnConfig::agent`, per session, default from settings): off sends
+  no tools, uses `prompt::chat_prompt` (it names no tool), skips booting the sandbox,
+  and writes the history's tool rounds as text (`context::without_tool_rounds`),
+  because endpoints refuse tool blocks when no tools are declared. The stored
+  transcript is unchanged, so switching back on restores it.
 - **Commit before the next request.** An interrupted turn always leaves a
   transcript that can be sent back as is.
 - **Streaming**: an idle timeout ends a silent stream; cancellation is
@@ -166,6 +171,9 @@ loop:
 - **Request shaping is data**: which thinking field, token-limit field,
   cache markers and extra fields a given (endpoint, model) gets is decided by
   a rule table with tests for each row, not by scattered string checks.
+- **Model lists are kept**: each endpoint's last list and fetch time are stored;
+  `cached_models` reads them with no request and says when a list is stale (over 24 h).
+  A failed fetch leaves the list; changing an endpoint's address drops it.
 - Model facts come from, in order: the endpoint's own model list, a
   published catalogue (models.dev), unknown. Unknown is a legal value; no
   limits are guessed.

@@ -4,7 +4,7 @@ import XCTest
 final class SessionGroupTests: XCTestCase {
     private func session(_ id: String, daysAgo: Double, pinned: Bool = false, now: Date) -> SessionInfo {
         let ms = Int64((now.timeIntervalSince1970 - daysAgo * 86_400) * 1000)
-        return SessionInfo(id: id, title: id, model: nil, thinking: nil, createdAt: ms, updatedAt: ms, preview: nil, pinnedAt: pinned ? ms : nil)
+        return SessionInfo(id: id, title: id, model: nil, thinking: nil, agentMode: nil, createdAt: ms, updatedAt: ms, preview: nil, pinnedAt: pinned ? ms : nil)
     }
 
     /// Pinned first whatever its age, then today, yesterday, the week, the

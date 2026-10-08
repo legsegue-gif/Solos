@@ -18,7 +18,7 @@ final class AppCore {
         l.openSession = { [weak self] id in self?.openSessionRequested = id }
         return l
     }()
-    private(set) var settings = Settings(endpoints: [], defaultModel: nil, thinking: false)
+    private(set) var settings = Settings(endpoints: [], defaultModel: nil, thinking: false, agentMode: true)
 
     /// Open chats by session id. Weak, so a closed chat simply stops
     /// receiving.
@@ -73,6 +73,18 @@ final class AppCore {
     func save(_ new: Settings) async throws {
         try await core?.setSettings(settings: new)
         settings = new
+    }
+
+    /// Remove endpoints and their keys. The default model goes with its
+    /// endpoint; chats that used one keep their messages and need another model.
+    func removeEndpoints(_ removed: [Endpoint]) async throws {
+        var s = settings
+        s.endpoints.removeAll { e in removed.contains { $0.id == e.id } }
+        if let d = s.defaultModel, removed.contains(where: { $0.id == d.endpointId }) {
+            s.defaultModel = nil
+        }
+        try await save(s)
+        removed.forEach { Keychain.write(EndpointEditor.secretRef(for: $0), "") }
     }
 
     /// The file on this device a workspace link (`solos://ws/…`) names, if

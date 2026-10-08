@@ -41,6 +41,15 @@ pub struct Endpoint {
     /// resolver when a request needs it, so a key changed in settings applies
     /// to the next request.
     pub secret_ref: String,
+    /// Off keeps the endpoint and its key but leaves it out: no turn uses it
+    /// and the model menu does not list it. A record saved before the switch
+    /// existed reads as on.
+    #[serde(default = "endpoint_on")]
+    pub enabled: bool,
+}
+
+fn endpoint_on() -> bool {
+    true
 }
 
 /// A model on a particular endpoint.
@@ -50,11 +59,25 @@ pub struct ModelChoice {
     pub model: String,
 }
 
-#[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+#[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub endpoints: Vec<Endpoint>,
     pub default_model: Option<ModelChoice>,
     pub thinking: bool,
+    /// Whether chats run as an agent (tools, sandbox) unless the chat says
+    /// otherwise. A record saved before the switch existed reads as on.
+    #[serde(default = "agent_mode_on")]
+    pub agent_mode: bool,
+}
+
+fn agent_mode_on() -> bool {
+    true
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { endpoints: vec![], default_model: None, thinking: false, agent_mode: true }
+    }
 }
 
 /// Which package manager a mirror serves.
@@ -151,6 +174,18 @@ pub struct ModelInfo {
     pub max_output: Option<u64>,
 }
 
+/// The models an endpoint listed the last time it was asked, kept so the
+/// model menu needs no request.
+#[derive(uniffi::Record, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ModelList {
+    pub models: Vec<ModelInfo>,
+    pub fetched_at: Millis,
+    /// Old enough that a client should ask again (in the background). Set
+    /// when the list is read; what is stored for it means nothing.
+    #[serde(default)]
+    pub stale: bool,
+}
+
 /// A model's context window: what its endpoint reported, and what the user
 /// set, kept apart so fetching the list again never loses the user's value.
 /// The user's wins when both are there.
@@ -188,6 +223,9 @@ pub struct SessionInfo {
     pub model: Option<ModelChoice>,
     /// Thinking for this session; `None` follows the settings.
     pub thinking: Option<bool>,
+    /// Agent mode for this session (tools and the sandbox; off is plain
+    /// chat); `None` follows the settings.
+    pub agent_mode: Option<bool>,
     pub created_at: Millis,
     pub updated_at: Millis,
     /// The start of the last reply, for the session list.
@@ -368,6 +406,8 @@ pub enum CoreError {
     NoModel,
     #[error("endpoint {endpoint_id} not found")]
     UnknownEndpoint { endpoint_id: String },
+    #[error("endpoint {endpoint_name} is turned off")]
+    EndpointOff { endpoint_name: String },
     #[error("no key for endpoint {endpoint_name}")]
     MissingKey { endpoint_name: String },
     #[error("network: {detail}")]

@@ -211,18 +211,18 @@
         }
       }
     },
-    "Thinking: for new chats, with any model. Each chat can change it from its model menu.": {
+    "Thinking and AI Agent Mode: for new chats, with any model. Each chat can change them from its model menu.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "思考：用于所有模型的新对话。每个对话可在模型菜单里单独更改。"
+            "value": "思考和 AI 智能体模式：用于所有模型的新对话。每个对话可在模型菜单里单独更改。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "思考：用於所有模型的新對話。每個對話可在模型選單裡單獨更改。"
+            "value": "思考和 AI 代理模式：用於所有模型的新對話。每個對話可在模型選單裡單獨更改。"
           }
         }
       }
@@ -3183,6 +3183,198 @@
         }
       }
     },
+    "AI Agent Mode": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 智能体模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 代理模式"
+          }
+        }
+      }
+    },
+    "On: the model can run commands, read and write files, browse the web and use the device. Off: plain chat, the model only answers in text. Attached images are still sent.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启：模型可以运行命令、读写文件、浏览网页并使用设备功能。关闭：普通聊天，模型只以文字回答。附带的图片仍会发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟：模型可以執行指令、讀寫檔案、瀏覽網頁並使用裝置功能。關閉：一般聊天，模型只以文字回答。附加的圖片仍會傳送。"
+          }
+        }
+      }
+    },
+    "Refresh models": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新模型列表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理模型列表"
+          }
+        }
+      }
+    },
+    "Show key": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示金鑰"
+          }
+        }
+      }
+    },
+    "Hide key": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏金鑰"
+          }
+        }
+      }
+    },
+    "Enabled": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用"
+          }
+        }
+      }
+    },
+    "Status": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態"
+          }
+        }
+      }
+    },
+    "Turned off": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已關閉"
+          }
+        }
+      }
+    },
+    "Off keeps the endpoint and its key but hides its models from the model menu; chats on it cannot be sent until it is turned on.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后保留端点和密钥，但模型菜单里不再列出它的模型；使用它的对话需重新启用后才能发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後保留端點和金鑰，但模型選單裡不再列出它的模型；使用它的對話需重新啟用後才能傳送。"
+          }
+        }
+      }
+    },
+    "The endpoint %@ is turned off. Turn it on in Settings, or choose another model.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端点 %@ 已关闭。请在设置中启用它，或选择其他模型。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端點 %@ 已關閉。請在設定中啟用它，或選擇其他模型。"
+          }
+        }
+      }
+    },
+    "Delete Endpoint": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除端点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除端點"
+          }
+        }
+      }
+    },
+    "This removes the endpoint, its models and its API key. Chats that used it keep their messages and need another model.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会删除该端点、它的模型和 API 密钥。使用过它的对话会保留消息，但需要改用其他模型。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會刪除該端點、它的模型和 API 金鑰。使用過它的對話會保留訊息，但需要改用其他模型。"
+          }
+        }
+      }
+    },
     "Thinking": {
       "localizations": {
         "zh-Hans": {
@@ -3195,38 +3387,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "思考"
-          }
-        }
-      }
-    },
-    "Thinking off": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "思考 关"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "思考 關"
-          }
-        }
-      }
-    },
-    "Thinking on": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "思考 开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "思考 開"
           }
         }
       }

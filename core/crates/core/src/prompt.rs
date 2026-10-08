@@ -39,6 +39,16 @@ Files the user attaches are copied into /solos/ws/attachments.
     out
 }
 
+/// The prompt when the chat is not an agent: no tools, no sandbox, so it
+/// says nothing about either. Earlier tool use in the chat reaches the model
+/// as text in the history (`context::without_tool_rounds`).
+pub fn chat_prompt() -> String {
+    "You are Solos, a personal AI assistant. In this chat you answer in text only: you cannot run commands, read or write files, browse the web or use the device. \
+If the user asks for something that needs that, say so and suggest turning on AI Agent Mode in the chat's model menu. \
+You can see images the user attaches; other attached files you cannot open. \
+Reply in the language the user writes in.".to_string()
+}
+
 /// Only when there is a browser. Measured against the reference app's
 /// wording: with it, the model opened a link it was sent instead of fetching
 /// a third-party mirror of it.
@@ -82,6 +92,14 @@ mod tests {
         assert!(a.contains("About this sandbox:\n- no curl here\n"));
         assert!(!system_prompt(&info(""), &tools, &[], &[]).contains("About this sandbox"));
         assert!(!a.contains("`browser`"), "no browser tool, no browser guidance");
+    }
+
+    #[test]
+    fn the_chat_prompt_names_no_tool() {
+        let p = chat_prompt();
+        for tool in ["shell", "file_read", "browser", "solos://", "/solos/ws"] {
+            assert!(!p.contains(tool), "plain chat has no {tool}");
+        }
     }
 
     /// Each of these was missing once and the model failed visibly for it.

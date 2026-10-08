@@ -212,6 +212,12 @@ impl SolosCore {
         self.run(|e| async move { e.list_models(endpoint).await }).await
     }
 
+    /// The models an endpoint listed the last time it was asked; `None`
+    /// before that. No request is made.
+    pub fn cached_models(&self, endpoint_id: String) -> Option<ModelList> {
+        self.engine.cached_models(&endpoint_id)
+    }
+
     pub async fn create_session(&self, model: Option<ModelChoice>) -> Result<SessionInfo, CoreError> {
         self.run(|e| async move { e.create_session(model).await }).await
     }
@@ -239,6 +245,11 @@ impl SolosCore {
     /// Thinking for one session; `None` follows the settings.
     pub async fn set_session_thinking(&self, session_id: String, thinking: Option<bool>) -> Result<SessionInfo, CoreError> {
         self.run(|e| async move { e.set_session_thinking(session_id, thinking).await }).await
+    }
+
+    /// Agent mode for one session; `None` follows the settings.
+    pub async fn set_session_agent_mode(&self, session_id: String, agent_mode: Option<bool>) -> Result<SessionInfo, CoreError> {
+        self.run(|e| async move { e.set_session_agent_mode(session_id, agent_mode).await }).await
     }
 
     /// Say something, with files attached; the core copies them into the

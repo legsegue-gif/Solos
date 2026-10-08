@@ -39,7 +39,7 @@ fn call(id: &str, args: &str) -> Reply {
 }
 
 /// Answers turn requests from its script, and title requests (the ones
-/// without tools) from `titles`, falling back to a fixed title.
+/// without tools, other than plain chat's) from `titles`, falling back to a fixed title.
 struct Scripted {
     replies: Mutex<VecDeque<Reply>>,
     requests: Mutex<Vec<ChatRequest>>,
@@ -50,7 +50,7 @@ struct Scripted {
 #[async_trait]
 impl Provider for Scripted {
     async fn stream(&self, req: ChatRequest, _c: CancellationToken) -> Result<EventStream, CoreError> {
-        let reply = if req.tools.is_empty() {
+        let reply = if req.tools.is_empty() && req.system != solos_core::prompt::chat_prompt() {
             self.title_requests.lock().unwrap().push(req);
             self.titles.lock().unwrap().pop_front().unwrap_or_else(|| text("Scripted title"))
         } else {
@@ -105,9 +105,11 @@ async fn engine(script: Vec<Reply>, key: Option<&'static str>) -> (Engine, Arc<S
                 protocol: Protocol::OpenAi,
                 base_url: String::new(),
                 secret_ref: "k".into(),
+                enabled: true,
             }],
             default_model: Some(ModelChoice { endpoint_id: "e".into(), model: "m".into() }),
             thinking: false,
+            agent_mode: true,
         })
         .await
         .unwrap();
@@ -210,6 +212,28 @@ async fn input_queued_during_a_failed_turn_still_runs() {
 }
 
 #[tokio::test]
+async fn a_turned_off_endpoint_refuses_a_turn_until_it_is_on_again_and_old_records_read_as_on() {
+    let (engine, _) = engine(vec![text("hello")], Some("k")).await;
+    let mut settings = engine.settings();
+    assert!(settings.endpoints[0].enabled);
+    settings.endpoints[0].enabled = false;
+    engine.set_settings(settings.clone()).await.unwrap();
+    let s = engine.create_session(None).await.unwrap();
+    let err = engine.send(s.id.clone(), "hi".into()).await.unwrap_err();
+    assert_eq!(err, CoreError::EndpointOff { endpoint_name: "Test".into() });
+    assert!(engine.snapshot(s.id.clone()).await.unwrap().messages.is_empty(), "nothing written");
+
+    settings.endpoints[0].enabled = true;
+    engine.set_settings(settings).await.unwrap();
+    let mut rx = engine.subscribe();
+    engine.send(s.id.clone(), "hi".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+
+    let old: Endpoint = serde_json::from_str(r#"{"id":"e","name":"Test","protocol":"open_ai","base_url":"","secret_ref":"k"}"#).unwrap();
+    assert!(old.enabled);
+}
+
+#[tokio::test]
 async fn a_missing_key_is_the_answer_to_send_and_nothing_is_written() {
     let (engine, _) = engine(vec![], None).await;
     let s = engine.create_session(None).await.unwrap();
@@ -305,6 +329,59 @@ async fn thinking_follows_the_session_over_the_settings() {
     assert_eq!(reqs.iter().map(|r| r.thinking).collect::<Vec<_>>(), [false, true]);
     drop(reqs);
     assert_eq!(engine.list_sessions().await.unwrap()[0].thinking, Some(true), "stored");
+}
+
+#[tokio::test]
+async fn agent_mode_off_sends_no_tools_and_writes_earlier_tool_rounds_as_text() {
+    let (engine, scripted) = engine(vec![call("c1", r#"{"title":"say hi","command":"echo hi"}"#), text("done"), text("plain")], Some("k")).await;
+    let mut rx = engine.subscribe();
+    let s = engine.create_session(None).await.unwrap();
+    engine.send(s.id.clone(), "run it".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+    let info = engine.set_session_agent_mode(s.id.clone(), Some(false)).await.unwrap();
+    assert_eq!(info.agent_mode, Some(false));
+    engine.send(s.id.clone(), "and now just talk".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+
+    let reqs = scripted.requests.lock().unwrap();
+    assert!(!reqs[0].tools.is_empty() && !reqs[1].tools.is_empty(), "agent mode sends tools");
+    let chat = &reqs[2];
+    assert!(chat.tools.is_empty());
+    assert_eq!(chat.system, solos_core::prompt::chat_prompt());
+    assert!(chat.messages.iter().all(|m| m.role != Role::Tool));
+    assert!(chat.messages.iter().flat_map(|m| &m.parts).all(|p| !matches!(p, Part::ToolCall { .. } | Part::ToolResult { .. })));
+    let history: String = chat
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .filter_map(|p| if let Part::Text { text } = p { Some(text.as_str()) } else { None })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(history.contains("[Tool call: shell") && history.contains("hi\n[exit code 0]"), "{history}");
+    assert_eq!(
+        chat.messages.iter().map(|m| m.role).collect::<Vec<_>>(),
+        [Role::User, Role::Assistant, Role::User],
+        "the two assistant messages of one answer are one again"
+    );
+    drop(reqs);
+    assert_eq!(engine.list_sessions().await.unwrap()[0].agent_mode, Some(false), "stored");
+}
+
+#[tokio::test]
+async fn agent_mode_follows_the_session_over_the_settings_and_is_on_by_default() {
+    let (engine, scripted) = engine(vec![text("a"), text("b")], Some("k")).await;
+    assert!(engine.settings().agent_mode);
+    let mut rx = engine.subscribe();
+    let s = engine.create_session(None).await.unwrap();
+    engine.send(s.id.clone(), "one".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+    let mut settings = engine.settings();
+    settings.agent_mode = false;
+    engine.set_settings(settings).await.unwrap();
+    engine.send(s.id.clone(), "two".into()).await.unwrap();
+    until_turns_finish(&mut rx, 1).await;
+    let reqs = scripted.requests.lock().unwrap();
+    assert_eq!(reqs.iter().map(|r| r.tools.is_empty()).collect::<Vec<_>>(), [false, true]);
 }
 
 #[tokio::test]
@@ -513,10 +590,41 @@ async fn models_server(window: u64) -> String {
 }
 
 #[tokio::test]
+async fn a_fetched_model_list_is_kept_until_the_endpoint_changes_and_a_failed_fetch_keeps_it() {
+    let (engine, _) = engine(vec![], Some("k")).await;
+    let ep = |url: String| Endpoint { id: "e".into(), name: "Test".into(), protocol: Protocol::OpenAi, base_url: url, secret_ref: "k".into(), enabled: true };
+    let settings = |ep: Option<Endpoint>| Settings { endpoints: ep.into_iter().collect(), default_model: None, thinking: false, agent_mode: true };
+
+    assert_eq!(engine.cached_models("e"), None, "nothing before the first fetch");
+    let url = models_server(32_000).await;
+    engine.set_settings(settings(Some(ep(url.clone())))).await.unwrap();
+    engine.list_models(ep(url.clone())).await.unwrap();
+    let kept = engine.cached_models("e").unwrap();
+    assert_eq!(kept.models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["m"]);
+    assert!(!kept.stale);
+
+    // The endpoint cannot be reached: the error comes back, the list stays.
+    let dead = ep("http://127.0.0.1:1/v1".into());
+    assert!(engine.list_models(dead).await.is_err());
+    assert_eq!(engine.cached_models("e").unwrap().models, kept.models);
+
+    // Saving the same endpoint again keeps it; pointing it elsewhere, or
+    // removing it, does not.
+    engine.set_settings(settings(Some(ep(url.clone())))).await.unwrap();
+    assert!(engine.cached_models("e").is_some());
+    engine.set_settings(settings(Some(ep("http://127.0.0.1:2/v1".into())))).await.unwrap();
+    assert_eq!(engine.cached_models("e"), None);
+    engine.set_settings(settings(Some(ep(url.clone())))).await.unwrap();
+    engine.list_models(ep(url)).await.unwrap();
+    engine.set_settings(settings(None)).await.unwrap();
+    assert_eq!(engine.cached_models("e"), None);
+}
+
+#[tokio::test]
 async fn a_window_set_by_hand_outlives_fetching_the_model_list_again() {
     let (engine, _) = engine(vec![], Some("k")).await;
     let choice = ModelChoice { endpoint_id: "e".into(), model: "m".into() };
-    let ep = |url: String| Endpoint { id: "e".into(), name: "Test".into(), protocol: Protocol::OpenAi, base_url: url, secret_ref: "k".into() };
+    let ep = |url: String| Endpoint { id: "e".into(), name: "Test".into(), protocol: Protocol::OpenAi, base_url: url, secret_ref: "k".into(), enabled: true };
 
     engine.list_models(ep(models_server(32_000).await)).await.unwrap();
     assert_eq!(engine.model_window(choice.clone()), ModelWindow { reported: Some(32_000), custom: None });
@@ -876,9 +984,10 @@ async fn a_saved_server_starts_on_its_first_call_and_stops_when_turned_off() {
     let (engine, scripted) = open(vec![call_tool("c1", "mcp_fake_add", r#"{"title":"sum","a":20,"b":22}"#), text("42"), text("off")]).await;
     engine
         .set_settings(Settings {
-            endpoints: vec![Endpoint { id: "e".into(), name: "Test".into(), protocol: Protocol::OpenAi, base_url: String::new(), secret_ref: "k".into() }],
+            endpoints: vec![Endpoint { id: "e".into(), name: "Test".into(), protocol: Protocol::OpenAi, base_url: String::new(), secret_ref: "k".into(), enabled: true }],
             default_model: Some(ModelChoice { endpoint_id: "e".into(), model: "m".into() }),
             thinking: false,
+            agent_mode: true,
         })
         .await
         .unwrap();

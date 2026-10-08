@@ -39,6 +39,9 @@ pub struct TurnConfig {
     pub model: String,
     pub system: String,
     pub thinking: bool,
+    /// Off is plain chat: the request carries no tools and the history's
+    /// tool rounds are written out as text (`context::without_tool_rounds`).
+    pub agent: bool,
     pub max_rounds: u32,
     /// How long the model may say nothing before the stream is given up on.
     pub idle_timeout: Duration,
@@ -57,6 +60,7 @@ impl Default for TurnConfig {
             model: String::new(),
             system: String::new(),
             thinking: true,
+            agent: true,
             max_rounds: 50,
             idle_timeout: Duration::from_secs(120),
             max_attempts: 3,
@@ -90,7 +94,8 @@ pub async fn run_turn(
         if cancel.is_cancelled() {
             return TurnEnd::Cancelled;
         }
-        let messages = match fit_window(cfg, tools, &transcript) {
+        let specs = if cfg.agent { tools.specs() } else { vec![] };
+        let messages = match fit_window(cfg, &specs, &transcript) {
             Ok(m) => m,
             Err(e) => return TurnEnd::Failed(e),
         };
@@ -98,7 +103,7 @@ pub async fn run_turn(
             model: cfg.model.clone(),
             system: cfg.system.clone(),
             messages,
-            tools: tools.specs(),
+            tools: specs,
             thinking: cfg.thinking,
             workspace: cfg.workspace.clone(),
         };
@@ -180,11 +185,11 @@ pub async fn run_turn(
 
 /// The transcript to send, with old tool output cleared if the window is
 /// filling; or, near the limit, a stop that asks the user (see `context`).
-fn fit_window(cfg: &TurnConfig, tools: &Registry, transcript: &[Message]) -> Result<Vec<Message>, CoreError> {
-    let Some(window) = cfg.window else { return Ok(transcript.to_vec()) };
+fn fit_window(cfg: &TurnConfig, specs: &[crate::tools::ToolSpec], transcript: &[Message]) -> Result<Vec<Message>, CoreError> {
+    let mut messages = if cfg.agent { transcript.to_vec() } else { crate::context::without_tool_rounds(transcript) };
+    let Some(window) = cfg.window else { return Ok(messages) };
     let policy = crate::context::Policy::for_window(window);
-    let tools_json = serde_json::to_string(&tools.specs().iter().map(|t| &t.schema).collect::<Vec<_>>()).unwrap_or_default();
-    let mut messages = transcript.to_vec();
+    let tools_json = serde_json::to_string(&specs.iter().map(|t| &t.schema).collect::<Vec<_>>()).unwrap_or_default();
     let mut used = crate::context::estimate(&cfg.system, &tools_json, &messages);
     if policy.clear_above > 0 && used > policy.clear_above {
         crate::context::clear_old_tool_output(&mut messages, used, policy.clear_to);

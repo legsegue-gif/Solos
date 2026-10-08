@@ -3,7 +3,7 @@ import XCTest
 
 final class ChatStateTests: XCTestCase {
     private func info() -> SessionInfo {
-        SessionInfo(id: "s", title: nil, model: nil, thinking: nil, createdAt: 0, updatedAt: 0, preview: nil, pinnedAt: nil)
+        SessionInfo(id: "s", title: nil, model: nil, thinking: nil, agentMode: nil, createdAt: 0, updatedAt: 0, preview: nil, pinnedAt: nil)
     }
 
     private func snapshot(seq: UInt64, messages: [Message] = [], turn: RunningTurn? = nil) -> Snapshot {

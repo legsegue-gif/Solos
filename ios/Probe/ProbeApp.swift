@@ -130,9 +130,10 @@ enum Probe {
             try await core.bootSandbox()
             say("boot_ms", "\(Int(Date().timeIntervalSince(started) * 1000))")
             try await core.setSettings(settings: Settings(
-                endpoints: [Endpoint(id: "probe", name: "probe", protocol: .openAi, baseUrl: base, secretRef: "probe")],
+                endpoints: [Endpoint(id: "probe", name: "probe", protocol: .openAi, baseUrl: base, secretRef: "probe", enabled: true)],
                 defaultModel: ModelChoice(endpointId: "probe", model: model),
-                thinking: env["SOLOS_PROBE_THINKING"] != "0"))
+                thinking: env["SOLOS_PROBE_THINKING"] != "0",
+                agentMode: env["SOLOS_PROBE_AGENT"] != "0"))
             let collector = Collector()
             core.subscribe(sink: collector)
             if let window = env["SOLOS_PROBE_WINDOW"].flatMap(UInt64.init) {

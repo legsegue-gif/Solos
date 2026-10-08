@@ -87,6 +87,61 @@ fn summary_message(summary: &str) -> String {
     format!("[Summary of the earlier part of this conversation, which was compacted to save context]\n\n{summary}")
 }
 
+/// Longest tool output kept, in characters, when a tool round is written
+/// out as text.
+const FOLDED_OUTPUT_CHARS: usize = 1_000;
+
+/// The transcript for a request that carries no tools. Endpoints refuse
+/// `tool_use` / `tool_result` blocks when no tools are declared, so each
+/// round is written into the assistant's message as text (the call, then
+/// its output cut to a length), tool messages are dropped, and the
+/// assistant messages that were one answer become one message again. The
+/// model still sees what was done. Images a tool returned are not kept.
+pub fn without_tool_rounds(messages: &[Message]) -> Vec<Message> {
+    let mut results: std::collections::HashMap<&str, (&str, bool)> = std::collections::HashMap::new();
+    for p in messages.iter().flat_map(|m| m.parts.iter()) {
+        if let Part::ToolResult { call_id, output, is_error, .. } = p {
+            results.insert(call_id, (output, *is_error));
+        }
+    }
+    let mut out: Vec<Message> = Vec::new();
+    for m in messages.iter().filter(|m| m.role != Role::Tool) {
+        let mut m = m.clone();
+        if m.role == Role::Assistant {
+            m.parts = m
+                .parts
+                .into_iter()
+                .filter_map(|p| match p {
+                    Part::ToolCall { id, name, input_json, .. } => {
+                        let (output, is_error) = results.get(id.as_str()).copied().unwrap_or(("(no result)", true));
+                        Some(Part::Text {
+                            text: format!(
+                                "[Tool call: {name} {input_json}\n{}: {}]",
+                                if is_error { "Error" } else { "Result" },
+                                truncate_chars(output, FOLDED_OUTPUT_CHARS)
+                            ),
+                        })
+                    }
+                    p => Some(p),
+                })
+                .collect();
+            if let Some(prev) = out.last_mut().filter(|prev| prev.role == Role::Assistant) {
+                prev.parts.extend(m.parts);
+                continue;
+            }
+        }
+        out.push(m);
+    }
+    out
+}
+
+fn truncate_chars(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}… (cut)", &s[..i]),
+        None => s.to_string(),
+    }
+}
+
 /// Clear old tool output until the estimate is at or below `target`,
 /// oldest first, leaving the last `KEEP_RECENT_USER_TURNS` user turns alone.
 /// Returns how many results were cleared.

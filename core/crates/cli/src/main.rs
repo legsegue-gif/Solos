@@ -63,12 +63,14 @@ async fn main() {
         },
         base_url: env("SOLOS_BASE_URL"),
         secret_ref: "env".into(),
+        enabled: true,
     };
     engine
         .set_settings(Settings {
             endpoints: vec![endpoint],
             default_model: Some(ModelChoice { endpoint_id: "env".into(), model: env("SOLOS_MODEL") }),
             thinking: true,
+            agent_mode: true,
         })
         .await
         .expect("settings");

@@ -95,6 +95,10 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE sessions ADD COLUMN pinned_at INTEGER;
     "#,
+    // 6: per-session agent mode switch
+    r#"
+    ALTER TABLE sessions ADD COLUMN agent_mode INTEGER;
+    "#,
 ];
 
 pub fn now_millis() -> Millis {
@@ -163,8 +167,8 @@ impl Store {
         self.run(move |c| {
             let model = info.model.as_ref().map(serde_json::to_string).transpose()?;
             c.execute(
-                "INSERT INTO sessions (id, title, model_json, thinking, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![info.id, info.title, model, info.thinking, info.created_at, info.updated_at],
+                "INSERT INTO sessions (id, title, model_json, thinking, created_at, updated_at, agent_mode) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![info.id, info.title, model, info.thinking, info.created_at, info.updated_at, info.agent_mode],
             )?;
             Ok(())
         })
@@ -208,6 +212,14 @@ impl Store {
         .await
     }
 
+    pub async fn set_agent_mode(&self, id: String, agent_mode: Option<bool>) -> Result<()> {
+        self.run(move |c| {
+            c.execute("UPDATE sessions SET agent_mode = ?2 WHERE id = ?1", params![id, agent_mode])?;
+            Ok(())
+        })
+        .await
+    }
+
     pub async fn set_title(&self, id: String, title: Option<String>) -> Result<()> {
         self.run(move |c| {
             c.execute("UPDATE sessions SET title = ?2 WHERE id = ?1", params![id, title])?;
@@ -232,8 +244,8 @@ impl Store {
             let tx = c.transaction()?;
             let model = info.model.as_ref().map(serde_json::to_string).transpose()?;
             tx.execute(
-                "INSERT INTO sessions (id, title, model_json, thinking, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![info.id, info.title, model, info.thinking, info.created_at, info.updated_at],
+                "INSERT INTO sessions (id, title, model_json, thinking, created_at, updated_at, agent_mode) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![info.id, info.title, model, info.thinking, info.created_at, info.updated_at, info.agent_mode],
             )?;
             let mut ids = std::collections::HashMap::new();
             {
@@ -558,17 +570,17 @@ impl Store {
 
 /// The session columns, plus the parts of its latest assistant message for
 /// the list preview.
-const SESSION_SELECT_BY_ID: &str = "SELECT s.id, s.title, s.model_json, s.created_at, s.updated_at, s.thinking,
+const SESSION_SELECT_BY_ID: &str = "SELECT s.id, s.title, s.model_json, s.created_at, s.updated_at, s.thinking, s.agent_mode,
     (SELECT parts_json FROM messages m WHERE m.session_id = s.id AND m.role = '\"assistant\"'
      ORDER BY m.seq DESC LIMIT 1), s.pinned_at
     FROM sessions s WHERE s.id = ?1";
-const SESSION_SELECT_LIST: &str = "SELECT s.id, s.title, s.model_json, s.created_at, s.updated_at, s.thinking,
+const SESSION_SELECT_LIST: &str = "SELECT s.id, s.title, s.model_json, s.created_at, s.updated_at, s.thinking, s.agent_mode,
     (SELECT parts_json FROM messages m WHERE m.session_id = s.id AND m.role = '\"assistant\"'
      ORDER BY m.seq DESC LIMIT 1), s.pinned_at
     FROM sessions s";
 fn row_to_session(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionInfo> {
     let model_json: Option<String> = r.get(2)?;
-    let last_parts: Option<String> = r.get(6)?;
+    let last_parts: Option<String> = r.get(7)?;
     Ok(SessionInfo {
         id: r.get(0)?,
         title: r.get(1)?,
@@ -577,7 +589,8 @@ fn row_to_session(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionInfo> {
         created_at: r.get(3)?,
         updated_at: r.get(4)?,
         preview: last_parts.and_then(|p| preview_of(&p)),
-        pinned_at: r.get(7)?,
+        pinned_at: r.get(8)?,
+        agent_mode: r.get(6)?,
     })
 }
 
@@ -635,7 +648,7 @@ mod tests {
     use solos_api::{Part, Role};
 
     fn session(id: &str) -> SessionInfo {
-        SessionInfo { id: id.into(), title: None, model: None, thinking: None, created_at: 1, updated_at: 1, preview: None, pinned_at: None }
+        SessionInfo { id: id.into(), title: None, model: None, thinking: None, agent_mode: None, created_at: 1, updated_at: 1, preview: None, pinned_at: None }
     }
 
     fn msg(id: &str, role: Role, text: &str, at: i64) -> Message {
@@ -699,6 +712,9 @@ mod tests {
         assert_eq!((info.title.as_deref(), info.thinking), (Some("t"), None));
         s.set_thinking("s".into(), Some(false)).await.unwrap();
         assert_eq!(s.session("s".into()).await.unwrap().unwrap().thinking, Some(false));
+        assert_eq!(info.agent_mode, None, "a session from before the switch follows the settings");
+        s.set_agent_mode("s".into(), Some(false)).await.unwrap();
+        assert_eq!(s.session("s".into()).await.unwrap().unwrap().agent_mode, Some(false));
     }
 
     #[tokio::test]

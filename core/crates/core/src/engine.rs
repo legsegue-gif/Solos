@@ -46,6 +46,10 @@ pub struct EngineConfig {
     pub provider_factory: Option<ProviderFactory>,
 }
 
+/// How old a kept model list may get before clients are told to fetch it
+/// again.
+const MODEL_LIST_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
+
 #[derive(Clone)]
 pub struct Engine {
     inner: Arc<Inner>,
@@ -65,6 +69,8 @@ struct Inner {
     windows: RwLock<HashMap<String, u64>>,
     /// Windows the user set, by the same key; never touched by a fetch.
     custom_windows: RwLock<HashMap<String, u64>>,
+    /// The model list of each endpoint, by endpoint id, as last fetched.
+    model_lists: RwLock<HashMap<String, solos_api::ModelList>>,
     /// The chosen source per package manager, by `mirrors::key`; a kind
     /// not in it uses its official source. Stored on its own, like the
     /// windows, so a settings record from before it still reads.
@@ -140,6 +146,12 @@ impl Engine {
             .map_err(storage)?
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
+        let model_lists: HashMap<String, solos_api::ModelList> = store
+            .setting("model_lists")
+            .await
+            .map_err(storage)?
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
         let custom_windows: HashMap<String, u64> = store
             .setting("model_window_overrides")
             .await
@@ -190,6 +202,7 @@ impl Engine {
                 settings: RwLock::new(settings),
                 windows: RwLock::new(windows),
                 custom_windows: RwLock::new(custom_windows),
+                model_lists: RwLock::new(model_lists),
                 package_mirrors: RwLock::new(package_mirrors),
                 disabled_skills: RwLock::new(disabled_skills),
                 mcp,
@@ -450,13 +463,56 @@ impl Engine {
     pub async fn set_settings(&self, settings: Settings) -> Result<(), CoreError> {
         let value = serde_json::to_value(&settings).map_err(|e| CoreError::Internal { detail: e.to_string() })?;
         self.inner.store.put_setting("settings", value).await.map_err(storage)?;
-        *self.inner.settings.write().unwrap() = settings;
+        let before = std::mem::replace(&mut *self.inner.settings.write().unwrap(), settings.clone());
+        // A removed endpoint, or one pointed somewhere else, no longer has
+        // the models that were listed for it.
+        let kept = |id: &String| {
+            let now = settings.endpoints.iter().find(|e| e.id == *id);
+            match (before.endpoints.iter().find(|e| e.id == *id), now) {
+                (Some(o), Some(n)) => o.base_url == n.base_url && o.protocol == n.protocol,
+                // Listed while the endpoint was being added, then saved.
+                (None, Some(_)) => true,
+                (_, None) => false,
+            }
+        };
+        let snapshot = {
+            let mut lists = self.inner.model_lists.write().unwrap();
+            let gone: Vec<String> = lists.keys().filter(|id| !kept(id)).cloned().collect();
+            for id in &gone {
+                lists.remove(id);
+            }
+            (!gone.is_empty()).then(|| lists.clone())
+        };
+        if let Some(snapshot) = snapshot {
+            self.put_model_lists(snapshot).await?;
+        }
         Ok(())
     }
 
+    async fn put_model_lists(&self, lists: HashMap<String, solos_api::ModelList>) -> Result<(), CoreError> {
+        let value = serde_json::to_value(lists).map_err(|e| CoreError::Internal { detail: e.to_string() })?;
+        self.inner.store.put_setting("model_lists", value).await.map_err(storage)
+    }
+
+    /// The models an endpoint listed last time, with whether a client should
+    /// ask again; `None` before it was ever asked.
+    pub fn cached_models(&self, endpoint_id: &str) -> Option<solos_api::ModelList> {
+        let mut list = self.inner.model_lists.read().unwrap().get(endpoint_id).cloned()?;
+        list.stale = now_millis().saturating_sub(list.fetched_at) > MODEL_LIST_MAX_AGE_MS;
+        Some(list)
+    }
+
+    /// Ask the endpoint for its models, and keep the answer. A failure
+    /// leaves the kept list as it was.
     pub async fn list_models(&self, endpoint: Endpoint) -> Result<Vec<ModelInfo>, CoreError> {
         let mut models = self.fetch_models(&endpoint).await?;
         crate::providers::model_order::sort_models(&mut models);
+        let snapshot = {
+            let mut lists = self.inner.model_lists.write().unwrap();
+            lists.insert(endpoint.id.clone(), solos_api::ModelList { models: models.clone(), fetched_at: now_millis(), stale: false });
+            lists.clone()
+        };
+        self.put_model_lists(snapshot).await?;
         let reported: Vec<(String, u64)> =
             models
                 .iter()
@@ -580,6 +636,7 @@ impl Engine {
             title: None,
             model: model.or_else(|| self.settings().default_model),
             thinking: None,
+            agent_mode: None,
             created_at: now,
             updated_at: now,
             preview: None,
@@ -677,6 +734,20 @@ impl Engine {
             self.inner.store.set_thinking(id.clone(), thinking).await.map_err(storage)?;
         }
         live.info.thinking = thinking;
+        let info = live.info.clone();
+        self.emit_locked(&mut live, EventKind::SessionUpdated { info: info.clone() });
+        Ok(info)
+    }
+
+    /// Switch agent mode for one session; `None` follows the settings. Off
+    /// is plain chat: no tools, no sandbox. It applies to the next turn.
+    pub async fn set_session_agent_mode(&self, id: String, agent_mode: Option<bool>) -> Result<SessionInfo, CoreError> {
+        let slot = self.slot(&id).await?;
+        let mut live = slot.live.lock().await;
+        if !live.pending {
+            self.inner.store.set_agent_mode(id.clone(), agent_mode).await.map_err(storage)?;
+        }
+        live.info.agent_mode = agent_mode;
         let info = live.info.clone();
         self.emit_locked(&mut live, EventKind::SessionUpdated { info: info.clone() });
         Ok(info)
@@ -817,6 +888,7 @@ impl Engine {
             title: title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).or_else(|| live.info.title.clone()),
             model: live.info.model.clone(),
             thinking: live.info.thinking,
+            agent_mode: live.info.agent_mode,
             created_at: now,
             updated_at: now,
             preview: live.info.preview.clone(),
@@ -957,6 +1029,9 @@ impl Engine {
             .into_iter()
             .find(|e| e.id == choice.endpoint_id)
             .ok_or_else(|| CoreError::UnknownEndpoint { endpoint_id: choice.endpoint_id.clone() })?;
+        if !endpoint.enabled {
+            return Err(CoreError::EndpointOff { endpoint_name: endpoint.name });
+        }
         let key = self.key_for(&endpoint)?;
         Ok(((self.inner.providers)(&endpoint, key, &self.inner.capture)?, choice))
     }
@@ -989,10 +1064,16 @@ impl Engine {
             &self.inner.store.messages(session_id.clone()).await.map_err(storage)?,
             &self.inner.store.compactions(session_id.clone()).await.map_err(storage)?,
         );
+        let agent = live.info.agent_mode.unwrap_or(self.settings().agent_mode);
         let cfg = TurnConfig {
             session_id: session_id.clone(),
             model: choice.model.clone(),
-            system: crate::prompt::system_prompt(&self.inner.sandbox.info(), &self.inner.tools, &self.skills(), &self.mcp_servers()),
+            system: if agent {
+                crate::prompt::system_prompt(&self.inner.sandbox.info(), &self.inner.tools, &self.skills(), &self.mcp_servers())
+            } else {
+                crate::prompt::chat_prompt()
+            },
+            agent,
             thinking: live.info.thinking.unwrap_or(self.settings().thinking),
             workspace: Some(self.inner.sandbox.workspace_dir()),
             window: self.window_for(&choice),
@@ -1001,7 +1082,8 @@ impl Engine {
         let engine = self.clone();
         tokio::spawn(async move {
             let host = SessionHost { engine: engine.clone(), slot: slot.clone(), provider: provider.clone(), model: choice.model };
-            if let Err(e) = engine.inner.sandbox.boot().await {
+            // Plain chat has no tool that could use the sandbox.
+            if let Err(e) = if cfg.agent { engine.inner.sandbox.boot().await } else { Ok(()) } {
                 engine.finish_turn(&slot, &turn_id, TurnEnd::Failed(CoreError::Sandbox { detail: e.to_string() })).await;
                 return;
             }

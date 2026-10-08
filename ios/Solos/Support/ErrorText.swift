@@ -9,6 +9,8 @@ extension CoreError {
             return String(localized: "No model is selected. Add an endpoint in Settings and choose a model.")
         case .UnknownEndpoint:
             return String(localized: "This chat's endpoint no longer exists. Choose another model.")
+        case .EndpointOff(let name):
+            return String(localized: "The endpoint \(name) is turned off. Turn it on in Settings, or choose another model.")
         case .MissingKey(let name):
             return String(localized: "There is no API key for \(name). Add one in Settings.")
         case .Network(let detail):

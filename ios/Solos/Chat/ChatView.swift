@@ -105,20 +105,16 @@ struct ChatView: View {
         }
     }
 
-    /// Title, and under it the model with the thinking state: tapping it
-    /// changes either.
+    /// Title, and under it the model: tapping it opens the model menu, which
+    /// holds the chat's switches (thinking, AI Agent Mode).
     private var header: some View {
         let session = model?.state.session
-        let thinking = session?.thinking ?? app.settings.thinking
         return VStack(spacing: 1) {
             Text(session?.title ?? String(localized: "New chat"))
                 .font(.headline).lineLimit(1)
             Button { pickingModel = true } label: {
                 HStack(spacing: 4) {
                     Text(modelLine(session?.model))
-                    Text(thinking ? String(localized: "Thinking on") : String(localized: "Thinking off"))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color(.tertiarySystemFill), in: Capsule())
                     Image(systemName: "chevron.down").imageScale(.small)
                 }
                 .font(.caption).foregroundStyle(.secondary)
