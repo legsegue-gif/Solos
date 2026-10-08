@@ -18,7 +18,10 @@ jobs:
   core:
     runs-on: macos-latest
     steps:
+      # The iSH sandbox embeds files from deps/ish (its Node polyfills).
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - name: Core tests
         working-directory: core
