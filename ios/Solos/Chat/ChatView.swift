@@ -765,6 +765,8 @@ struct ToolDetail: View {
                     if let output = item.output {
                         section(item.isError ? String(localized: "Error") : String(localized: "Result"), output, error: item.isError)
                     }
+                    // Apple asks for its mark wherever its weather data is shown.
+                    if item.name == "device_weather", !item.isError { WeatherAttribution() }
                 }
                 .padding()
             }

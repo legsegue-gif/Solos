@@ -87,6 +87,11 @@ struct SettingsView: View {
                 // Grouped as the home screen's buttons are: files, browser, and
                 // the package mirrors the terminal and the model install from.
                 privacySection
+                Section {
+                    WeatherAttribution()
+                } header: {
+                    Text("Weather")
+                }
                 filesSection
                 Section {
                     NavigationLink { BrowserSettingsView() } label: {

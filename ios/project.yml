@@ -75,7 +75,11 @@ targets:
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Solos saves pictures from a chat to your photos when you ask it to."
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Solos connects to model endpoints you configure, including ones on your local network."
         CURRENT_PROJECT_VERSION: 1
-        MARKETING_VERSION: "0.1"
+        MARKETING_VERSION: "1.0.0"
+        # HTTPS to the model services is the only encryption the app uses, and
+        # it is the system's and the TLS library's own, which is exempt: say so
+        # once here, so every upload is not asked again.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
 
   SolosTests:
     type: bundle.unit-test
