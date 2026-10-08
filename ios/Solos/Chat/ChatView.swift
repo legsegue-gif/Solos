@@ -36,6 +36,9 @@ struct ChatView: View {
     private static let endSlack: CGFloat = 2
     private static let liveEndSlack: CGFloat = 20
     @FocusState private var composerFocused: Bool
+    /// The most width messages and the composer take: on a wide screen
+    /// (an iPad, a phone on its side) they stay a readable column.
+    static let readableWidth: CGFloat = 820
     /// Bumped on every send; the text field is keyed on it, so a send builds
     /// a fresh field. Backstop for a hardware keyboard, where focus stays and
     /// the old input session could write the sent text back.
@@ -211,6 +214,8 @@ struct ChatView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 12)
                 .coordinateSpace(name: Self.contentSpace)
+                .frame(maxWidth: Self.readableWidth)
+                .frame(maxWidth: .infinity)
             }
             .scrollPosition($scrollPosition)
             .scrollDismissesKeyboard(.interactively)
@@ -403,6 +408,8 @@ struct ChatView: View {
             composerRow(model)
         }
         .padding(.horizontal).padding(.vertical, 8)
+        .frame(maxWidth: Self.readableWidth)
+        .frame(maxWidth: .infinity)
         .background(.bar)
         .photosPicker(isPresented: $pickingPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
         .onChange(of: photoItems) { _, items in

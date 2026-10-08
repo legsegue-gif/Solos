@@ -68,7 +68,10 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Solos
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        # As the reference app: every way up on the iPad, and the phone too
+        # may lie on its side (the terminal and the browser want the width).
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Solos saves pictures from a chat to your photos when you ask it to."
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Solos connects to model endpoints you configure, including ones on your local network."
         CURRENT_PROJECT_VERSION: 1

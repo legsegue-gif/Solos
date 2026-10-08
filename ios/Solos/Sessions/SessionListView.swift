@@ -69,6 +69,8 @@ struct SessionListView: View {
                 }
             }
             .listStyle(.plain)
+            .frame(maxWidth: ChatView.readableWidth)
+            .frame(maxWidth: .infinity)
             .environment(\.editMode, .constant(selecting ? .active : .inactive))
             .overlay {
                 if found?.isEmpty == true {
